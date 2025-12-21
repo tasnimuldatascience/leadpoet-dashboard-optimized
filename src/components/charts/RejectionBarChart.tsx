@@ -44,15 +44,16 @@ export function RejectionBarChart({ data, maxItems = 10 }: RejectionBarChartProp
         <BarChart
           data={chartData}
           layout="vertical"
-          margin={{ top: 5, right: 20, left: 80, bottom: 5 }}
+          margin={{ top: 5, right: 20, left: 10, bottom: 5 }}
         >
         <XAxis type="number" stroke="#94a3b8" fontSize={12} />
         <YAxis
           type="category"
           dataKey="reason"
           stroke="#94a3b8"
-          fontSize={10}
-          width={180}
+          fontSize={11}
+          width={220}
+          tick={{ style: { whiteSpace: 'nowrap' } }}
         />
         <Tooltip
           contentStyle={{
