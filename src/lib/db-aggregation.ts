@@ -200,8 +200,14 @@ export interface LeadJourneyEntry {
   leadId: string | null
 }
 
+// Result type including original submission count
+interface MergedLeadsResult {
+  leads: MergedLead[]
+  totalSubmissions: number  // Count before email_hash deduplication
+}
+
 // Fetch and merge submissions with consensus - SINGLE fetch, used by all aggregations
-async function fetchMergedLeads(hours: number, metagraph: MetagraphData | null): Promise<MergedLead[]> {
+async function fetchMergedLeads(hours: number, metagraph: MetagraphData | null): Promise<MergedLeadsResult> {
   console.log(`[DB] Fetching merged leads (hours=${hours})...`)
   const startTime = Date.now()
   const cutoff = getTimeCutoff(hours)
@@ -298,9 +304,9 @@ async function fetchMergedLeads(hours: number, metagraph: MetagraphData | null):
   }
 
   const fetchTime = Date.now() - startTime
-  console.log(`[DB] Merged ${merged.length} leads in ${fetchTime}ms`)
+  console.log(`[DB] Merged ${merged.length} leads from ${filteredSubmissions.length} submissions in ${fetchTime}ms`)
 
-  return merged
+  return { leads: merged, totalSubmissions: filteredSubmissions.length }
 }
 
 // Main function: Fetch all dashboard data in ONE call
@@ -342,10 +348,10 @@ export async function fetchAllDashboardData(hours: number, metagraph: MetagraphD
   const startTime = Date.now()
 
   // Single fetch of merged data
-  const leads = await fetchMergedLeads(hours, metagraph)
+  const { leads, totalSubmissions } = await fetchMergedLeads(hours, metagraph)
 
   // Calculate all aggregations from the same data
-  const summary = calculateSummary(leads)
+  const summary = calculateSummary(leads, totalSubmissions)
   const minerStats = calculateMinerStats(leads)
   const epochStats = calculateEpochStats(leads)
   const leadInventory = calculateLeadInventory(leads)
@@ -376,8 +382,8 @@ async function refreshDataInBackground(hours: number, metagraph: MetagraphData |
     console.log(`[Cache] Background refresh started for hours=${hours}...`)
     const startTime = Date.now()
 
-    const leads = await fetchMergedLeads(hours, metagraph)
-    const summary = calculateSummary(leads)
+    const { leads, totalSubmissions } = await fetchMergedLeads(hours, metagraph)
+    const summary = calculateSummary(leads, totalSubmissions)
     const minerStats = calculateMinerStats(leads)
     const epochStats = calculateEpochStats(leads)
     const leadInventory = calculateLeadInventory(leads)
@@ -410,8 +416,8 @@ async function warmCacheInBackground(metagraph: MetagraphData | null) {
 
     try {
       console.log(`[Cache] Warming cache for hours=${hours}...`)
-      const leads = await fetchMergedLeads(hours, metagraph)
-      const summary = calculateSummary(leads)
+      const { leads, totalSubmissions } = await fetchMergedLeads(hours, metagraph)
+      const summary = calculateSummary(leads, totalSubmissions)
       const minerStats = calculateMinerStats(leads)
       const epochStats = calculateEpochStats(leads)
       const leadInventory = calculateLeadInventory(leads)
@@ -430,11 +436,11 @@ async function warmCacheInBackground(metagraph: MetagraphData | null) {
 }
 
 // Aggregation functions (work on already-fetched data)
-function calculateSummary(leads: MergedLead[]): DashboardSummary {
+function calculateSummary(leads: MergedLead[], totalSubmissions: number): DashboardSummary {
   const accepted = leads.filter(l => l.decision === 'ACCEPTED').length
   const rejected = leads.filter(l => l.decision === 'REJECTED').length
   const pending = leads.filter(l => l.decision === 'PENDING').length
-  const total = leads.length
+  const total = totalSubmissions  // Use original submission count, not deduplicated leads
   const decided = accepted + rejected
 
   // Only calculate avg rep score for ACCEPTED leads
