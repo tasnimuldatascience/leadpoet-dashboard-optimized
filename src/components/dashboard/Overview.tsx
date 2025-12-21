@@ -133,8 +133,8 @@ export function Overview({
           bValue = b.minerHotkey
           break
         default:
-          aValue = a[sortKey as keyof MinerLeaderboardData] as number
-          bValue = b[sortKey as keyof MinerLeaderboardData] as number
+          aValue = a[sortKey as keyof MinerStats] as number
+          bValue = b[sortKey as keyof MinerStats] as number
       }
 
       if (typeof aValue === 'string' && typeof bValue === 'string') {

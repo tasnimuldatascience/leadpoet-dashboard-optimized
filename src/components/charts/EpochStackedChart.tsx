@@ -9,10 +9,16 @@ import {
   Tooltip,
   Legend,
 } from 'recharts'
-import { EpochStats } from '@/lib/types'
+
+// Simplified type for chart data - only needs what the chart renders
+interface EpochChartData {
+  epochId: number
+  accepted: number
+  rejected: number
+}
 
 interface EpochStackedChartProps {
-  data: EpochStats[]
+  data: EpochChartData[]
   maxEpochs?: number
 }
 
