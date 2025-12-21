@@ -1,0 +1,75 @@
+'use client'
+
+import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts'
+
+interface DecisionPieChartProps {
+  accepted: number
+  rejected: number
+  pending: number
+}
+
+const COLORS = {
+  ACCEPTED: '#22c55e',
+  REJECTED: '#ef4444',
+  PENDING: '#f59e0b',
+}
+
+export function DecisionPieChart({ accepted, rejected, pending }: DecisionPieChartProps) {
+  const data = [
+    { name: 'Accepted', value: accepted },
+    { name: 'Rejected', value: rejected },
+    { name: 'Pending', value: pending },
+  ].filter((d) => d.value > 0)
+
+  if (data.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-[300px] text-muted-foreground">
+        No data available
+      </div>
+    )
+  }
+
+  return (
+    <div className="h-[250px] md:h-[300px]">
+      <ResponsiveContainer width="100%" height="100%">
+        <PieChart>
+          <Pie
+            data={data}
+            cx="50%"
+            cy="50%"
+            innerRadius={40}
+            outerRadius={70}
+            paddingAngle={2}
+            dataKey="value"
+            label={({ name, percent }) => `${name}: ${((percent ?? 0) * 100).toFixed(1)}%`}
+            labelLine={false}
+          >
+          {data.map((entry) => (
+            <Cell
+              key={entry.name}
+              fill={COLORS[entry.name.toUpperCase() as keyof typeof COLORS]}
+              stroke="transparent"
+            />
+          ))}
+        </Pie>
+        <Tooltip
+          contentStyle={{
+            backgroundColor: '#1e293b',
+            border: '1px solid #334155',
+            borderRadius: '8px',
+            color: '#f1f5f9',
+          }}
+          itemStyle={{ color: '#f1f5f9' }}
+          labelStyle={{ color: '#94a3b8' }}
+          formatter={(value) => [(value ?? 0).toLocaleString(), 'Count']}
+        />
+        <Legend
+          verticalAlign="bottom"
+          height={36}
+          formatter={(value) => <span className="text-xs md:text-sm">{value}</span>}
+        />
+      </PieChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
