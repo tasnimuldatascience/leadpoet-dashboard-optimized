@@ -206,8 +206,10 @@ async function fetchMergedLeads(hours: number, metagraph: MetagraphData | null):
   const startTime = Date.now()
   const cutoff = getTimeCutoff(hours)
 
-  // Get active miner hotkeys from metagraph
-  const activeMiners = metagraph ? new Set(Object.keys(metagraph.hotkeyToUid)) : null
+  // Get active miner hotkeys from metagraph (only if metagraph has data)
+  // If metagraph is empty/failed, skip filtering to show all data
+  const metagraphHotkeys = metagraph ? Object.keys(metagraph.hotkeyToUid) : []
+  const activeMiners = metagraphHotkeys.length > 0 ? new Set(metagraphHotkeys) : null
 
   // Fetch submissions (primary source)
   const allSubmissions: Array<{ ts: string; actor_hotkey: string; email_hash: string }> = []
@@ -695,8 +697,10 @@ export async function fetchLeadJourneyData(metagraph: MetagraphData | null): Pro
   // Always use 72 hour cutoff for lead journey
   const cutoff = new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString()
 
-  // Get active miner hotkeys from metagraph
-  const activeMiners = metagraph ? new Set(Object.keys(metagraph.hotkeyToUid)) : null
+  // Get active miner hotkeys from metagraph (only if metagraph has data)
+  // If metagraph is empty/failed, skip filtering to show all data
+  const metagraphHotkeys = metagraph ? Object.keys(metagraph.hotkeyToUid) : []
+  const activeMiners = metagraphHotkeys.length > 0 ? new Set(metagraphHotkeys) : null
 
   // Fetch submissions with more details
   const allSubmissions: Array<{
