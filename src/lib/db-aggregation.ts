@@ -236,12 +236,10 @@ async function fetchMergedLeads(hours: number, metagraph: MetagraphData | null):
 
   console.log(`[DB] Fetched ${allSubmissions.length} submissions`)
 
-  // Filter by active miners
-  const filteredSubmissions = activeMiners
-    ? allSubmissions.filter(s => activeMiners.has(s.actor_hotkey))
-    : allSubmissions
+  // Use all submissions (don't filter by current metagraph to preserve historical data)
+  const filteredSubmissions = allSubmissions
 
-  console.log(`[DB] Filtered to ${filteredSubmissions.length} submissions from active miners`)
+  console.log(`[DB] Using all ${filteredSubmissions.length} submissions`)
 
   // Fetch consensus results
   const consensusMap = new Map<string, { decision: string; epoch_id?: number; rep_score?: number; rejection_reason?: string }>()
@@ -733,10 +731,8 @@ export async function fetchLeadJourneyData(metagraph: MetagraphData | null): Pro
 
   console.log(`[DB] Fetched ${allSubmissions.length} submissions for lead journey`)
 
-  // Filter by active miners
-  const filteredSubmissions = activeMiners
-    ? allSubmissions.filter(s => activeMiners.has(s.actor_hotkey))
-    : allSubmissions
+  // Use all submissions (don't filter by current metagraph to preserve historical data)
+  const filteredSubmissions = allSubmissions
 
   // Fetch consensus results for these email hashes
   const emailHashes = new Set(filteredSubmissions.map(s => s.email_hash))
