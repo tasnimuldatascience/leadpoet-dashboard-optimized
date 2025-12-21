@@ -7,9 +7,10 @@ import type { MetagraphData } from './types'
 const execAsync = promisify(exec)
 
 export async function fetchMetagraph(): Promise<MetagraphData> {
-  const condaPath = process.env.HOME + '/anaconda3'
-  const pythonPath = condaPath + '/envs/leadpoet/bin/python'
   const scriptPath = path.join(process.cwd(), 'scripts', 'fetch_metagraph.py')
+
+  // Use the bittensor virtual environment on EC2
+  const pythonPath = process.env.HOME + '/bittensor-venv/bin/python'
 
   try {
     const { stdout, stderr } = await execAsync(
@@ -18,7 +19,6 @@ export async function fetchMetagraph(): Promise<MetagraphData> {
         timeout: 120000,
         env: {
           ...process.env,
-          PATH: `${condaPath}/envs/leadpoet/bin:${process.env.PATH}`,
         }
       }
     )
