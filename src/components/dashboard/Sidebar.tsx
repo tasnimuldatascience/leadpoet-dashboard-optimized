@@ -53,7 +53,7 @@ export function Sidebar({
           />
           <div>
             <h1 className="font-bold text-lg">Leadpoet</h1>
-            <p className="text-xs text-muted-foreground">Subnet Dashboard</p>
+            <p className="text-xs text-muted-foreground">Real-time Dashboard for Bittensor Subnet 71</p>
           </div>
         </a>
         {/* Close button - only visible on mobile */}
@@ -115,14 +115,7 @@ export function Sidebar({
         )}
       </div>
 
-      <Separator />
-
-      {/* Network Info */}
-      <div className="space-y-2 text-xs text-muted-foreground">
-        <p>Network: <strong>finney</strong></p>
-        <p>Netuid: <strong>71</strong></p>
       </div>
-    </div>
     </>
   )
 }

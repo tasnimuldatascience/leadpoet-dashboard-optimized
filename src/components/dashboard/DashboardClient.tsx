@@ -175,7 +175,7 @@ export function DashboardClient({ initialData, metagraph: initialMetagraph }: Da
         percentage: rr.percentage,
       })),
     }
-  }).filter(m => m.uid !== null) // Only show miners in metagraph
+  }).filter(m => !metagraph || Object.keys(metagraph.hotkeyToUid).length === 0 || m.uid !== null) // Only filter by metagraph if data available
 
   // Transform epoch stats (includes per-epoch miner stats)
   const epochStats = dashboardData.epochStats.map(e => ({
@@ -213,15 +213,15 @@ export function DashboardClient({ initialData, metagraph: initialMetagraph }: Da
         btIncentivePct: btIncentive * 100,
       }
     })
-    .filter(i => i.uid !== null)
+    .filter(i => !metagraph || Object.keys(metagraph.hotkeyToUid).length === 0 || i.uid !== null)
 
   // Get active miners from miner stats
   const activeMiners = minerStats.map(m => m.minerHotkey)
 
-  // Get active miner count from metagraph (non-validators)
-  const activeMinerCount = metagraph
+  // Get active miner count from metagraph (non-validators), fallback to minerStats count
+  const activeMinerCount = metagraph && Object.keys(metagraph.isValidator).length > 0
     ? Object.entries(metagraph.isValidator).filter(([, isVal]) => !isVal).length
-    : 0
+    : minerStats.length
 
   // Handler for clicking on a miner hotkey in the leaderboard
   const handleMinerClick = (minerHotkey: string) => {
@@ -264,7 +264,7 @@ export function DashboardClient({ initialData, metagraph: initialMetagraph }: Da
               />
             </a>
             <h1 className="text-lg sm:text-xl md:text-2xl font-bold">
-              LeadPoet Subnet Dashboard
+              Real-time Dashboard for Bittensor Subnet 71 (Leadpoet)
             </h1>
             {isLoading && (
               <Badge variant="secondary" className="gap-1 animate-pulse hidden sm:flex">
@@ -303,6 +303,11 @@ export function DashboardClient({ initialData, metagraph: initialMetagraph }: Da
                 <span className="hidden sm:inline">Overview</span>
                 <span className="sm:hidden">Home</span>
               </TabsTrigger>
+              <TabsTrigger value="lead-inventory" className="gap-1 md:gap-2 px-2 md:px-4 text-xs md:text-sm whitespace-nowrap">
+                <Package className="h-3 w-3 md:h-4 md:w-4" />
+                <span className="hidden sm:inline">Lead Inventory</span>
+                <span className="sm:hidden">Leads</span>
+              </TabsTrigger>
               <TabsTrigger value="miner-tracker" className="gap-1 md:gap-2 px-2 md:px-4 text-xs md:text-sm whitespace-nowrap">
                 <Pickaxe className="h-3 w-3 md:h-4 md:w-4" />
                 <span className="hidden sm:inline">Miner Tracker</span>
@@ -312,11 +317,6 @@ export function DashboardClient({ initialData, metagraph: initialMetagraph }: Da
                 <Layers className="h-3 w-3 md:h-4 md:w-4" />
                 <span className="hidden sm:inline">Epoch Analysis</span>
                 <span className="sm:hidden">Epochs</span>
-              </TabsTrigger>
-              <TabsTrigger value="lead-inventory" className="gap-1 md:gap-2 px-2 md:px-4 text-xs md:text-sm whitespace-nowrap">
-                <Package className="h-3 w-3 md:h-4 md:w-4" />
-                <span className="hidden sm:inline">Lead Inventory</span>
-                <span className="sm:hidden">Leads</span>
               </TabsTrigger>
               <TabsTrigger value="submission-tracker" className="gap-1 md:gap-2 px-2 md:px-4 text-xs md:text-sm whitespace-nowrap">
                 <Search className="h-3 w-3 md:h-4 md:w-4" />
@@ -341,6 +341,10 @@ export function DashboardClient({ initialData, metagraph: initialMetagraph }: Da
             />
           </TabsContent>
 
+          <TabsContent value="lead-inventory">
+            <LeadInventory data={inventoryData} />
+          </TabsContent>
+
           <TabsContent value="miner-tracker">
             <MinerTracker
               minerStats={minerStats}
@@ -357,10 +361,6 @@ export function DashboardClient({ initialData, metagraph: initialMetagraph }: Da
               metagraph={metagraph}
               onMinerClick={handleMinerClick}
             />
-          </TabsContent>
-
-          <TabsContent value="lead-inventory">
-            <LeadInventory data={inventoryData} />
           </TabsContent>
 
           <TabsContent value="submission-tracker">

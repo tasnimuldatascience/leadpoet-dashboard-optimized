@@ -17,8 +17,10 @@ interface RejectionBarChartProps {
 }
 
 export function RejectionBarChart({ data, maxItems = 10 }: RejectionBarChartProps) {
-  // Filter out "unknown" reasons and take top items
-  const filteredData = data.filter(d => d.reason.toLowerCase() !== 'unknown')
+  // Filter out "unknown" reasons and only show items > 1%, then take top items
+  const filteredData = data
+    .filter(d => d.reason.toLowerCase() !== 'unknown')
+    .filter(d => d.percentage > 1)
   const chartData = filteredData.slice(0, maxItems).reverse()
 
   if (chartData.length === 0) {
@@ -49,9 +51,8 @@ export function RejectionBarChart({ data, maxItems = 10 }: RejectionBarChartProp
           type="category"
           dataKey="reason"
           stroke="#94a3b8"
-          fontSize={11}
-          width={120}
-          tickFormatter={(value) => (value.length > 20 ? value.slice(0, 20) + '...' : value)}
+          fontSize={10}
+          width={180}
         />
         <Tooltip
           contentStyle={{

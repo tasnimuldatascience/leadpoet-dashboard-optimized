@@ -9,8 +9,8 @@ const execAsync = promisify(exec)
 export async function fetchMetagraph(): Promise<MetagraphData> {
   const scriptPath = path.join(process.cwd(), 'scripts', 'fetch_metagraph.py')
 
-  // Use the bittensor virtual environment on EC2
-  const pythonPath = process.env.HOME + '/bittensor-venv/bin/python'
+  // Use the anaconda environment with bittensor installed
+  const pythonPath = process.env.HOME + '/anaconda3/bin/python3'
 
   try {
     const { stdout, stderr } = await execAsync(
