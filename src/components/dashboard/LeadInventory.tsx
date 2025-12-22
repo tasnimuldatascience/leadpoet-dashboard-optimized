@@ -10,6 +10,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { InventoryGrowthChart, DailyLeadsChart } from '@/components/charts'
+import { Download } from 'lucide-react'
 import type { LeadInventoryData } from '@/lib/types'
 
 interface LeadInventoryProps {
@@ -17,6 +18,23 @@ interface LeadInventoryProps {
 }
 
 export function LeadInventory({ data }: LeadInventoryProps) {
+  // Download Lead Inventory CSV
+  const downloadInventoryCSV = () => {
+    const headers = ['Date', 'New Valid Leads', 'Total Inventory']
+    const rows = [...data].reverse().map(row => [
+      row.date,
+      row.newValidLeads,
+      row.totalValidInventory
+    ])
+    const csvContent = [headers, ...rows].map(row => row.join(',')).join('\n')
+    const blob = new Blob([csvContent], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'lead_inventory.csv'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
   if (data.length === 0) {
     return (
       <Card className="py-12">
@@ -58,7 +76,16 @@ export function LeadInventory({ data }: LeadInventoryProps) {
       {/* Data Table */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Inventory Data</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-lg">Inventory Data</CardTitle>
+            <button
+              onClick={downloadInventoryCSV}
+              className="flex items-center gap-1 px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded-md"
+            >
+              <Download className="h-3 w-3" />
+              CSV
+            </button>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="rounded-md border max-h-80 overflow-auto">

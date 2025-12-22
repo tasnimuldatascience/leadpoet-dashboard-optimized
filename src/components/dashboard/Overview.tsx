@@ -15,27 +15,29 @@ import { MetricCard } from '@/components/shared/MetricCard'
 import {
   DecisionPieChart,
   RejectionBarChart,
-  EpochStackedChart,
   MinerIncentiveChart,
+  InventoryGrowthChart,
+  DailyLeadsChart,
 } from '@/components/charts'
 import {
   FileText,
   CheckCircle,
   XCircle,
   Clock,
-  Activity,
   Users,
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
   Copy,
   Check,
+  Download,
 } from 'lucide-react'
 import type {
   DashboardMetrics,
   MinerStats,
   EpochStats,
   RejectionReason,
+  LeadInventoryData,
 } from '@/lib/types'
 
 type SortKey = 'uid' | 'minerHotkey' | 'total' | 'accepted' | 'rejected' | 'pending' | 'acceptanceRate' | 'avgRepScore' | 'last20Accepted' | 'last20Rejected' | 'currentAccepted' | 'currentRejected' | 'btIncentive'
@@ -47,6 +49,7 @@ interface OverviewProps {
   epochStats: EpochStats[]
   rejectionReasons: RejectionReason[]
   activeMinerCount: number
+  inventoryData: LeadInventoryData[]
   onMinerClick?: (minerHotkey: string) => void
 }
 
@@ -56,6 +59,7 @@ export function Overview({
   epochStats,
   rejectionReasons,
   activeMinerCount,
+  inventoryData,
   onMinerClick,
 }: OverviewProps) {
   const [sortKey, setSortKey] = useState<SortKey>('accepted')
@@ -185,10 +189,37 @@ export function Overview({
     }
   }
 
+  // Download CSV function for miner leaderboard
+  const downloadMinerCSV = () => {
+    const headers = ['UID', 'Hotkey', 'Total', 'Accepted', 'Rejected', 'Pending', 'Rate%', 'Last20 Acc', 'Last20 Rej', 'Current Acc', 'Current Rej', 'BT Incentive%']
+    const rows = sortedLeaderboardData.map(m => [
+      m.uid ?? '',
+      m.minerHotkey,
+      m.total,
+      m.accepted,
+      m.rejected,
+      m.pending,
+      m.acceptanceRate,
+      m.last20Accepted,
+      m.last20Rejected,
+      m.currentAccepted,
+      m.currentRejected,
+      m.btIncentive.toFixed(4)
+    ])
+    const csvContent = [headers, ...rows].map(row => row.join(',')).join('\n')
+    const blob = new Blob([csvContent], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'miner_leaderboard.csv'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <div className="space-y-4 md:space-y-6">
       {/* Metrics Row */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 md:gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 md:gap-4">
         <MetricCard
           title="Total Submissions"
           value={metrics.total.toLocaleString()}
@@ -214,12 +245,6 @@ export function Overview({
           color="amber"
         />
         <MetricCard
-          title="Avg Rep Score"
-          value={metrics.avgRepScore.toFixed(4)}
-          icon={Activity}
-          color="purple"
-        />
-        <MetricCard
           title="Active Miners"
           value={activeMinerCount}
           icon={Users}
@@ -227,11 +252,40 @@ export function Overview({
         />
       </div>
 
+      {/* Lead Inventory Charts */}
+      {inventoryData.length > 0 && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
+          <Card>
+            <CardHeader className="p-4 md:p-6">
+              <CardTitle className="text-base md:text-lg">Valid Lead Inventory Growth</CardTitle>
+              <p className="text-xs md:text-sm text-muted-foreground">
+                Total sum of valid leads in database over time
+              </p>
+            </CardHeader>
+            <CardContent className="p-4 md:p-6 pt-0 md:pt-0">
+              <InventoryGrowthChart data={inventoryData} />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="p-4 md:p-6">
+              <CardTitle className="text-base md:text-lg">Daily Valid Lead Additions</CardTitle>
+              <p className="text-xs md:text-sm text-muted-foreground">
+                Number of valid leads entering inventory each day
+              </p>
+            </CardHeader>
+            <CardContent className="p-4 md:p-6 pt-0 md:pt-0">
+              <DailyLeadsChart data={inventoryData} />
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
         <Card>
           <CardHeader className="p-4 md:p-6">
-            <CardTitle className="text-base md:text-lg">Decision Distribution</CardTitle>
+            <CardTitle className="text-base md:text-lg">Lead Distribution</CardTitle>
           </CardHeader>
           <CardContent className="p-4 md:p-6 pt-0 md:pt-0">
             <DecisionPieChart
@@ -252,16 +306,6 @@ export function Overview({
         </Card>
       </div>
 
-      {/* Epoch Performance */}
-      <Card>
-        <CardHeader className="p-4 md:p-6">
-          <CardTitle className="text-base md:text-lg">Epoch-wide Performance</CardTitle>
-        </CardHeader>
-        <CardContent className="p-4 md:p-6 pt-0 md:pt-0">
-          <EpochStackedChart data={epochStats} maxEpochs={20} />
-        </CardContent>
-      </Card>
-
       {/* Incentive Distribution */}
       <Card>
         <CardHeader className="p-4 md:p-6">
@@ -278,7 +322,16 @@ export function Overview({
       {/* Miner Leaderboard */}
       <Card>
         <CardHeader className="p-4 md:p-6">
-          <CardTitle className="text-base md:text-lg">Miner Leaderboard</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base md:text-lg">Miner Leaderboard</CardTitle>
+            <button
+              onClick={downloadMinerCSV}
+              className="flex items-center gap-1 px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded-md"
+            >
+              <Download className="h-3 w-3" />
+              CSV
+            </button>
+          </div>
           <p className="text-xs text-muted-foreground md:hidden">
             ← Scroll horizontally to see all columns →
           </p>
@@ -355,16 +408,6 @@ export function Overview({
                     </div>
                   </TableHead>
                   <TableHead
-                    className="text-right cursor-pointer hover:bg-muted/50 select-none px-2 md:px-4"
-                    onClick={() => handleSort('avgRepScore')}
-                  >
-                    <div className="flex items-center justify-end whitespace-nowrap">
-                      <span className="hidden sm:inline">Avg Score</span>
-                      <span className="sm:hidden">Score</span>
-                      <SortIcon columnKey="avgRepScore" />
-                    </div>
-                  </TableHead>
-                  <TableHead
                     className="text-center cursor-pointer hover:bg-muted/50 select-none px-2 md:px-4"
                     onClick={() => handleSort('last20Accepted')}
                   >
@@ -405,11 +448,11 @@ export function Overview({
                     <TableCell className="font-mono text-xs px-2 md:px-4">
                       <div className="flex items-center gap-1">
                         <span
-                          className="text-blue-400 hover:text-blue-300 cursor-pointer hover:underline truncate max-w-[80px] md:max-w-none"
+                          className="text-blue-400 hover:text-blue-300 cursor-pointer hover:underline"
                           onClick={() => handleHotkeyClick(miner.minerHotkey)}
-                          title={`Click to view in Miner Tracker: ${miner.minerHotkey}`}
+                          title="Click to view in Miner Tracker"
                         >
-                          {miner.minerShort}
+                          {miner.minerHotkey}
                         </span>
                         <button
                           onClick={(e) => handleCopyHotkey(miner.minerHotkey, e)}
@@ -436,9 +479,6 @@ export function Overview({
                     </TableCell>
                     <TableCell className="text-right px-2 md:px-4">
                       {miner.acceptanceRate}%
-                    </TableCell>
-                    <TableCell className="text-right px-2 md:px-4">
-                      {miner.avgRepScore.toFixed(3)}
                     </TableCell>
                     <TableCell className="text-center px-2 md:px-4 whitespace-nowrap">
                       <span className="text-green-500">{miner.last20Accepted}</span>
@@ -472,9 +512,6 @@ export function Overview({
                   </TableCell>
                   <TableCell className="text-right px-2 md:px-4">
                     {totals.rate}%
-                  </TableCell>
-                  <TableCell className="text-right px-2 md:px-4">
-                    {totals.avgScore.toFixed(3)}
                   </TableCell>
                   <TableCell className="text-center px-2 md:px-4 whitespace-nowrap">
                     <span className="text-green-500">{totals.last20Accepted}</span>

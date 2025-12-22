@@ -187,7 +187,7 @@ export function MinerTracker({
           {/* Miner Info */}
           <Card className="bg-blue-500/10 border-blue-500/30">
             <CardContent className="pt-4">
-              <div className="flex items-center gap-4 flex-wrap">
+              <div className="flex items-center justify-center gap-4 flex-wrap">
                 <Badge variant="outline" className="text-lg px-3 py-1">
                   UID: {selectedMinerStats.uid ?? 'N/A'}
                 </Badge>
@@ -253,13 +253,13 @@ export function MinerTracker({
               />
               <MetricCard
                 title="Emission"
-                value={`${(selectedMinerStats.btEmission || 0).toFixed(4)} ρ`}
+                value={`${(selectedMinerStats.btEmission || 0).toFixed(4)} ㄴ`}
                 icon={Zap}
                 color="purple"
               />
               <MetricCard
-                title="Stake"
-                value={`${selectedMinerStats.stake.toFixed(2)} τ`}
+                title="Alpha Stake"
+                value={`${selectedMinerStats.stake.toFixed(2)} ㄴ`}
                 icon={Wallet}
                 color="amber"
               />

@@ -49,8 +49,11 @@ try:
             emission_val = 0.0
         emissions[hotkey] = emission_val
 
-        # Get stake
-        if hasattr(metagraph, 'stake'):
+        # Get alpha stake (subnet-specific stake)
+        if hasattr(metagraph, 'alpha_stake'):
+            stake_val = metagraph.alpha_stake[uid]
+            stake_val = stake_val.item() if hasattr(stake_val, 'item') else float(stake_val)
+        elif hasattr(metagraph, 'stake'):
             stake_val = metagraph.stake[uid]
             stake_val = stake_val.item() if hasattr(stake_val, 'item') else float(stake_val)
         elif hasattr(metagraph, 'S'):

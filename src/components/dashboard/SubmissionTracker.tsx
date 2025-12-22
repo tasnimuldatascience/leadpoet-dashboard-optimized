@@ -20,13 +20,10 @@ import {
   CheckCircle,
   XCircle,
   Clock,
-  Info,
   Loader2,
   Copy,
   Check,
-  Search,
 } from 'lucide-react'
-import { Button } from '@/components/ui/button'
 import { fetchLeadJourney } from '@/lib/supabase'
 import type { JourneyEvent } from '@/lib/types'
 import { supabase } from '@/lib/supabase'
@@ -224,29 +221,19 @@ export function SubmissionTracker() {
 
   return (
     <div className="space-y-6">
-      {/* Info Banner */}
-      <div className="flex items-center gap-2 p-3 bg-muted/50 rounded-lg text-sm text-muted-foreground">
-        <Info className="h-4 w-4 flex-shrink-0" />
-        <span>Search by Lead ID</span>
-      </div>
-
       {/* Search */}
-      <div className="flex gap-2">
-        <Input
-          placeholder="Enter lead ID..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          onKeyDown={handleKeyDown}
-          className="max-w-lg"
-        />
-        <Button onClick={handleSearch} disabled={isSearching || !searchQuery.trim()} className="gap-2">
-          {isSearching ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Search className="h-4 w-4" />
-          )}
-          Search
-        </Button>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label className="text-sm text-muted-foreground mb-2 block">
+            Search by Lead ID
+          </label>
+          <Input
+            placeholder="Enter lead ID and press Enter..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={handleKeyDown}
+          />
+        </div>
       </div>
 
       {/* Results */}

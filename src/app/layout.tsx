@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Real-time dashboard for Bittensor Subnet 71 (Leadpoet)",
+  title: "Leadpoet Subnet Dashboard",
   description: "Real-time transparency tracking for LeadPoet miners on Bittensor subnet 71",
   icons: {
     icon: '/icon.png',

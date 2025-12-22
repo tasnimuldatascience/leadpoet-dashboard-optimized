@@ -18,6 +18,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { MetricCard } from '@/components/shared/MetricCard'
+import { EpochStackedChart } from '@/components/charts'
 import {
   FileText,
   CheckCircle,
@@ -29,6 +30,7 @@ import {
   ArrowDown,
   Copy,
   Check,
+  Download,
 } from 'lucide-react'
 import type { EpochStats, MetagraphData } from '@/lib/types'
 
@@ -46,6 +48,7 @@ export function EpochAnalysis({ epochStats, metagraph, onMinerClick }: EpochAnal
   const [selectedEpoch, setSelectedEpoch] = useState<number | null>(
     epochStats.length > 0 ? epochStats[0].epochId : null
   )
+  const [epochSearch, setEpochSearch] = useState('')
   const [sortField, setSortField] = useState<SortField | null>(null)
   const [sortOrder, setSortOrder] = useState<SortOrder>(null)
   const [epochSortField, setEpochSortField] = useState<EpochSortField>('epochId')
@@ -70,7 +73,7 @@ export function EpochAnalysis({ epochStats, metagraph, onMinerClick }: EpochAnal
       return {
         uid,
         minerHotkey: m.miner_hotkey,
-        minerShort: m.miner_hotkey.substring(0, 20) + '...',
+        minerShort: m.miner_hotkey,
         total: m.total,
         accepted: m.accepted,
         rejected: m.rejected,
@@ -199,6 +202,50 @@ export function EpochAnalysis({ epochStats, metagraph, onMinerClick }: EpochAnal
   // Get unique miner count for this epoch (from pre-calculated data)
   const uniqueMiners = epochMinerStats.length
 
+  // Download Epoch Overview CSV
+  const downloadEpochOverviewCSV = () => {
+    const headers = ['Epoch ID', 'Total Consensus', 'Approved', 'Rejected', 'Avg Score', 'Acceptance Rate%']
+    const rows = sortedEpochStats.map(e => [
+      e.epochId,
+      e.total,
+      e.accepted,
+      e.rejected,
+      e.avgRepScore.toFixed(3),
+      e.acceptanceRate
+    ])
+    const csvContent = [headers, ...rows].map(row => row.join(',')).join('\n')
+    const blob = new Blob([csvContent], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'epoch_overview.csv'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  // Download Miners in Epoch CSV
+  const downloadMinersInEpochCSV = () => {
+    if (!selectedEpoch) return
+    const headers = ['UID', 'Hotkey', 'Total', 'Accepted', 'Rejected', 'Rate%', 'BT Incentive%']
+    const rows = epochMinerStats.map(m => [
+      m.uid ?? '',
+      m.minerHotkey,
+      m.total,
+      m.accepted,
+      m.rejected,
+      m.acceptanceRate,
+      m.btIncentive.toFixed(4)
+    ])
+    const csvContent = [headers, ...rows].map(row => row.join(',')).join('\n')
+    const blob = new Blob([csvContent], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `miners_epoch_${selectedEpoch}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   if (epochStats.length === 0) {
     return (
       <Card className="py-12">
@@ -211,10 +258,29 @@ export function EpochAnalysis({ epochStats, metagraph, onMinerClick }: EpochAnal
 
   return (
     <div className="space-y-6">
+      {/* Epoch Performance Chart */}
+      <Card>
+        <CardHeader className="p-4 md:p-6">
+          <CardTitle className="text-base md:text-lg">Epoch Performance</CardTitle>
+        </CardHeader>
+        <CardContent className="p-4 md:p-6 pt-0 md:pt-0">
+          <EpochStackedChart data={epochStats} maxEpochs={20} />
+        </CardContent>
+      </Card>
+
       {/* Epoch Overview Table */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Epoch Overview</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-lg">Epoch Overview</CardTitle>
+            <button
+              onClick={downloadEpochOverviewCSV}
+              className="flex items-center gap-1 px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded-md"
+            >
+              <Download className="h-3 w-3" />
+              CSV
+            </button>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="rounded-md border max-h-80 overflow-auto">
@@ -302,26 +368,54 @@ export function EpochAnalysis({ epochStats, metagraph, onMinerClick }: EpochAnal
         </CardContent>
       </Card>
 
-      {/* Epoch Selector */}
-      <div className="w-48">
-        <label className="text-sm text-muted-foreground mb-2 block">
-          Select Epoch
-        </label>
-        <Select
-          value={selectedEpoch?.toString() || ''}
-          onValueChange={(value) => setSelectedEpoch(parseInt(value))}
-        >
-          <SelectTrigger>
-            <SelectValue placeholder="Select epoch..." />
-          </SelectTrigger>
-          <SelectContent>
-            {epochStats.map((epoch) => (
-              <SelectItem key={epoch.epochId} value={epoch.epochId.toString()}>
-                Epoch {epoch.epochId}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+      {/* Epoch Selector with Search */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label className="text-sm text-muted-foreground mb-2 block">
+            Search Epoch
+          </label>
+          <input
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            placeholder="Enter epoch ID and press Enter..."
+            value={epochSearch}
+            onChange={(e) => setEpochSearch(e.target.value.replace(/\D/g, ''))}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && epochSearch) {
+                const found = epochStats.find(ep => ep.epochId.toString() === epochSearch)
+                if (found) {
+                  setSelectedEpoch(found.epochId)
+                  setEpochSearch('')
+                }
+              }
+            }}
+            className="w-full px-3 py-2 bg-background border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        <div>
+          <label className="text-sm text-muted-foreground mb-2 block">
+            Select Epoch
+          </label>
+          <Select
+            value={selectedEpoch?.toString() || ''}
+            onValueChange={(value) => {
+              setSelectedEpoch(parseInt(value))
+              setEpochSearch('')
+            }}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Select epoch..." />
+            </SelectTrigger>
+            <SelectContent>
+              {epochStats.map((epoch) => (
+                <SelectItem key={epoch.epochId} value={epoch.epochId.toString()}>
+                  Epoch {epoch.epochId}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {selectedEpoch !== null && selectedEpochStats && (
@@ -363,9 +457,18 @@ export function EpochAnalysis({ epochStats, metagraph, onMinerClick }: EpochAnal
           {/* Miners in Epoch */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">
-                Miners in Epoch {selectedEpoch}
-              </CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-lg">
+                  Miners in Epoch {selectedEpoch}
+                </CardTitle>
+                <button
+                  onClick={downloadMinersInEpochCSV}
+                  className="flex items-center gap-1 px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded-md"
+                >
+                  <Download className="h-3 w-3" />
+                  CSV
+                </button>
+              </div>
             </CardHeader>
             <CardContent>
               <div className="rounded-md border">
