@@ -11,10 +11,8 @@ import {
   Sidebar,
 } from '@/components/dashboard'
 import type {
-  TimeFilterOption,
   MetagraphData,
 } from '@/lib/types'
-import { TIME_FILTER_HOURS } from '@/lib/types'
 import type { AllDashboardData } from '@/lib/db-aggregation'
 import Image from 'next/image'
 import {
@@ -49,7 +47,6 @@ export function DashboardClient({ initialData, metagraph: initialMetagraph }: Da
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date(initialData.fetchedAt))
-  const [timeFilter, setTimeFilter] = useState<TimeFilterOption>('all')
   const [activeTab, setActiveTab] = useState('overview')
   const [selectedMinerHotkey, setSelectedMinerHotkey] = useState<string | null>(null)
   const [selectedEpochId, setSelectedEpochId] = useState<number | null>(null)
@@ -74,13 +71,13 @@ export function DashboardClient({ initialData, metagraph: initialMetagraph }: Da
   // Ref to track if component is mounted
   const isMounted = useRef(true)
 
-  // Fetch dashboard data with time filter
-  const fetchDashboardData = useCallback(async (hours: number) => {
+  // Fetch dashboard data (always all time)
+  const fetchDashboardData = useCallback(async () => {
     try {
       setIsLoading(true)
       setError(null)
 
-      const response = await fetch(`/api/dashboard?hours=${hours}`)
+      const response = await fetch('/api/dashboard')
 
       if (!response.ok) {
         throw new Error('Failed to fetch dashboard data')
@@ -116,20 +113,13 @@ export function DashboardClient({ initialData, metagraph: initialMetagraph }: Da
     }
   }, [])
 
-  // Handle time filter change - fetch new data
-  const handleTimeFilterChange = useCallback((option: TimeFilterOption, hours: number) => {
-    setTimeFilter(option)
-    fetchDashboardData(hours)
-  }, [fetchDashboardData])
-
   // Set up cleanup and background refresh
   useEffect(() => {
     isMounted.current = true
 
     // Background refresh every 5 minutes
     const interval = setInterval(() => {
-      const hours = TIME_FILTER_HOURS[timeFilter]
-      fetchDashboardData(hours)
+      fetchDashboardData()
       refreshMetagraph()
     }, REFRESH_INTERVAL * 1000)
 
@@ -137,7 +127,7 @@ export function DashboardClient({ initialData, metagraph: initialMetagraph }: Da
       isMounted.current = false
       clearInterval(interval)
     }
-  }, [timeFilter, fetchDashboardData, refreshMetagraph])
+  }, [fetchDashboardData, refreshMetagraph])
 
   // Transform DB types to UI types
   const metrics = {
@@ -230,8 +220,6 @@ export function DashboardClient({ initialData, metagraph: initialMetagraph }: Da
       {/* Sidebar */}
       <Sidebar
         lastRefresh={lastRefresh}
-        timeFilter={timeFilter}
-        onTimeFilterChange={handleTimeFilterChange}
         isLoading={isLoading}
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}

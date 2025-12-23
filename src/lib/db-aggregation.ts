@@ -1,10 +1,8 @@
 // Database aggregation queries - fetch once, aggregate all stats
-// Time filtering done at DB level, filter by active miners (metagraph)
-// Results cached for 5 minutes (~100KB, not raw data)
+// Filter by active miners (metagraph)
 
 import { supabase } from './supabase'
 import type { MetagraphData } from './types'
-import { simpleCache } from './simple-cache'
 
 // Normalize decision values
 function normalizeDecision(decision: string | undefined): 'ACCEPTED' | 'REJECTED' | 'PENDING' {
@@ -344,36 +342,12 @@ export interface AllDashboardData {
   incentiveData: IncentiveDataAggregated[]
 }
 
-// All valid time presets
-const ALL_HOUR_PRESETS = [0, 1, 6, 12, 24, 48, 72, 168]
-
-// Track if cache warming is in progress
-let isWarmingCache = false
-
 export async function fetchAllDashboardData(hours: number, metagraph: MetagraphData | null): Promise<AllDashboardData> {
-  // Stale-while-revalidate: Try to get cached data (even if stale)
-  const staleResult = simpleCache.getStale<AllDashboardData>('dashboard', hours)
-
-  if (staleResult) {
-    if (!staleResult.isStale) {
-      // Fresh data - return immediately
-      return staleResult.data
-    }
-
-    // Data is stale - return it immediately but refresh in background
-    if (!simpleCache.isRefreshing('dashboard', hours)) {
-      console.log(`[Cache] Returning stale data for hours=${hours}, refreshing in background...`)
-      refreshDataInBackground(hours, metagraph)
-    }
-    return staleResult.data
-  }
-
-  // No cached data - must fetch fresh
-  console.log(`[DB] Fetching all dashboard data (hours=${hours})...`)
+  console.log(`[DB] Fetching all dashboard data...`)
   const startTime = Date.now()
 
-  // Single fetch of merged data
-  const { leads, totalSubmissions, consensusData } = await fetchMergedLeads(hours, metagraph)
+  // Single fetch of merged data (always all time, hours=0)
+  const { leads, totalSubmissions, consensusData } = await fetchMergedLeads(0, metagraph)
 
   // Calculate all aggregations from the same data
   const summary = calculateSummary(leads, totalSubmissions)
@@ -385,99 +359,10 @@ export async function fetchAllDashboardData(hours: number, metagraph: MetagraphD
 
   const result = { summary, minerStats, epochStats, leadInventory, rejectionReasons, incentiveData }
 
-  // Cache the aggregated results
-  simpleCache.set('dashboard', result, hours)
-
   const totalTime = Date.now() - startTime
   console.log(`[DB] All dashboard data calculated in ${totalTime}ms`)
 
-  // Trigger background cache warming for other presets (only once)
-  if (!isWarmingCache) {
-    warmCacheInBackground(metagraph)
-  }
-
-  // Pre-warm latest leads cache if not already cached
-  if (!simpleCache.get('latestLeads', 0)) {
-    fetchLatestLeads(metagraph).catch(err => {
-      console.error('[Cache] Failed to pre-warm latest leads:', err)
-    })
-  }
-
   return result
-}
-
-// Refresh data in background without blocking the response
-async function refreshDataInBackground(hours: number, metagraph: MetagraphData | null) {
-  simpleCache.setRefreshing('dashboard', hours, true)
-
-  try {
-    console.log(`[Cache] Background refresh started for hours=${hours}...`)
-    const startTime = Date.now()
-
-    const { leads, totalSubmissions, consensusData } = await fetchMergedLeads(hours, metagraph)
-    const summary = calculateSummary(leads, totalSubmissions)
-    const minerStats = calculateMinerStats(leads)
-    const epochStats = calculateEpochStats(consensusData, leads)
-    const leadInventory = calculateLeadInventory(leads)
-    const rejectionReasons = calculateRejectionReasons(leads)
-    const incentiveData = calculateIncentiveData(leads)
-
-    const result = { summary, minerStats, epochStats, leadInventory, rejectionReasons, incentiveData }
-    simpleCache.set('dashboard', result, hours)
-
-    // Also refresh latest leads cache (invalidate so next request fetches fresh)
-    simpleCache.delete('latestLeads', 0)
-
-    const totalTime = Date.now() - startTime
-    console.log(`[Cache] Background refresh completed for hours=${hours} in ${totalTime}ms`)
-  } catch (err) {
-    console.error(`[Cache] Background refresh failed for hours=${hours}:`, err)
-    simpleCache.setRefreshing('dashboard', hours, false)
-  }
-}
-
-// Pre-warm cache for all time presets in background
-async function warmCacheInBackground(metagraph: MetagraphData | null) {
-  if (isWarmingCache) return
-  isWarmingCache = true
-
-  console.log('[Cache] Starting background cache warming...')
-
-  for (const hours of ALL_HOUR_PRESETS) {
-    // Skip if already cached
-    if (simpleCache.get<AllDashboardData>('dashboard', hours)) {
-      continue
-    }
-
-    try {
-      console.log(`[Cache] Warming cache for hours=${hours}...`)
-      const { leads, totalSubmissions, consensusData } = await fetchMergedLeads(hours, metagraph)
-      const summary = calculateSummary(leads, totalSubmissions)
-      const minerStats = calculateMinerStats(leads)
-      const epochStats = calculateEpochStats(consensusData, leads)
-      const leadInventory = calculateLeadInventory(leads)
-      const rejectionReasons = calculateRejectionReasons(leads)
-      const incentiveData = calculateIncentiveData(leads)
-
-      const result = { summary, minerStats, epochStats, leadInventory, rejectionReasons, incentiveData }
-      simpleCache.set('dashboard', result, hours)
-    } catch (err) {
-      console.error(`[Cache] Failed to warm cache for hours=${hours}:`, err)
-    }
-  }
-
-  // Also warm latest leads cache
-  if (!simpleCache.get('latestLeads', 0)) {
-    try {
-      console.log('[Cache] Warming latest leads cache...')
-      await fetchLatestLeads(metagraph)
-    } catch (err) {
-      console.error('[Cache] Failed to warm latest leads cache:', err)
-    }
-  }
-
-  console.log('[Cache] Background cache warming complete!')
-  isWarmingCache = false
 }
 
 // Aggregation functions (work on already-fetched data)
@@ -894,13 +779,6 @@ export interface LatestLead {
 }
 
 export async function fetchLatestLeads(metagraph: MetagraphData | null): Promise<LatestLead[]> {
-  // Check cache first (uses same 5-min TTL as dashboard)
-  const cached = simpleCache.get<LatestLead[]>('latestLeads', 0)
-  if (cached) {
-    console.log('[Cache] HIT for latestLeads')
-    return cached
-  }
-
   console.log('[DB] Fetching latest 100 leads...')
   const startTime = Date.now()
 
@@ -979,9 +857,6 @@ export async function fetchLatestLeads(metagraph: MetagraphData | null): Promise
       rejectionReason: payload?.primary_rejection_reason ? cleanRejectionReason(payload.primary_rejection_reason) : null,
     })
   }
-
-  // Cache the results
-  simpleCache.set('latestLeads', leads, 0)
 
   const fetchTime = Date.now() - startTime
   console.log(`[DB] Fetched ${leads.length} latest leads in ${fetchTime}ms`)
