@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { fetchAllDashboardData, type AllDashboardData } from '@/lib/db-aggregation'
+import { fetchAllDashboardData } from '@/lib/db-aggregation'
 import { fetchMetagraph } from '@/lib/metagraph'
 
 // Valid preset hours (no custom option)

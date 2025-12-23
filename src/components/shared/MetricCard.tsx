@@ -11,6 +11,7 @@ interface MetricCardProps {
   color?: 'blue' | 'green' | 'red' | 'purple' | 'amber' | 'cyan'
   trend?: 'up' | 'down' | 'neutral'
   subtitle?: string
+  size?: 'default' | 'large'
 }
 
 const colorClasses = {
@@ -37,7 +38,10 @@ export function MetricCard({
   icon: Icon,
   color = 'blue',
   subtitle,
+  size = 'default',
 }: MetricCardProps) {
+  const isLarge = size === 'large'
+
   return (
     <Card
       className={cn(
@@ -45,16 +49,39 @@ export function MetricCard({
         colorClasses[color]
       )}
     >
-      <CardContent className="p-3 md:p-4">
-        <div className="flex items-start justify-between gap-2">
-          <div className="space-y-0.5 md:space-y-1 min-w-0 flex-1">
-            <p className="text-xs md:text-sm text-muted-foreground truncate">{title}</p>
-            <p className="text-lg md:text-2xl font-bold tracking-tight truncate">{value}</p>
+      <CardContent className={cn(
+        'p-3 md:p-4',
+        isLarge && 'p-3 md:p-8'
+      )}>
+        <div className={cn(
+          'flex items-start justify-between gap-2',
+          isLarge && 'flex-row items-center justify-center gap-2 md:gap-6'
+        )}>
+          {Icon && isLarge && (
+            <div className={cn('p-1.5 md:p-4 rounded-lg md:rounded-xl bg-background/50 flex-shrink-0', iconColorClasses[color])}>
+              <Icon className="h-4 w-4 md:h-10 md:w-10" />
+            </div>
+          )}
+          <div className={cn(
+            'space-y-0.5 md:space-y-1 min-w-0 flex-1',
+            isLarge && 'space-y-0 md:space-y-2 flex-none'
+          )}>
+            <p className={cn(
+              'text-xs md:text-sm text-muted-foreground truncate',
+              isLarge && 'text-[10px] md:text-base'
+            )}>{title}</p>
+            <p className={cn(
+              'text-lg md:text-2xl font-bold tracking-tight truncate',
+              isLarge && 'text-xl md:text-5xl'
+            )}>{value}</p>
             {subtitle && (
-              <p className="text-xs text-muted-foreground truncate">{subtitle}</p>
+              <p className={cn(
+                'text-xs text-muted-foreground truncate',
+                isLarge && 'text-[10px] md:text-base'
+              )}>{subtitle}</p>
             )}
           </div>
-          {Icon && (
+          {Icon && !isLarge && (
             <div className={cn('p-1.5 md:p-2 rounded-lg bg-background/50 flex-shrink-0', iconColorClasses[color])}>
               <Icon className="h-4 w-4 md:h-5 md:w-5" />
             </div>

@@ -47,14 +47,19 @@ export function MinerIncentiveChart({ minerStats }: MinerIncentiveChartProps) {
     }))
   }, [minerStats])
 
-  // Find miner matching search
+  // Find miner matching search - prioritize exact UID match
   const searchedMiner = useMemo(() => {
     if (!searchTerm) return null
-    const term = searchTerm.toLowerCase()
-    return chartData.find(
-      m => m.minerHotkey.toLowerCase().includes(term) ||
-           (m.uid !== null && m.uid.toString() === term)
-    ) || null
+    const term = searchTerm.trim().toLowerCase()
+
+    // First, check for exact UID match (if search term is a number)
+    if (/^\d+$/.test(term)) {
+      const uidMatch = chartData.find(m => m.uid !== null && m.uid.toString() === term)
+      if (uidMatch) return uidMatch
+    }
+
+    // Then, check for hotkey match
+    return chartData.find(m => m.minerHotkey.toLowerCase().includes(term)) || null
   }, [chartData, searchTerm])
 
   // Get max incentive for Y-axis domain (add 10% padding)
@@ -79,11 +84,11 @@ export function MinerIncentiveChart({ minerStats }: MinerIncentiveChartProps) {
     return `${hotkey.substring(0, 10)}...${hotkey.substring(hotkey.length - 6)}`
   }
 
-  // Display miner (hovered takes priority, then searched)
-  const displayMiner = hoveredMiner || searchedMiner
+  // Display miner (searched takes priority when search is active, then hovered)
+  const displayMiner = searchTerm ? searchedMiner : hoveredMiner
 
-  // Reference line target (for crosshairs)
-  const crosshairTarget = hoveredMiner || searchedMiner
+  // Reference line target (for crosshairs) - show for searched or hovered
+  const crosshairTarget = searchTerm ? searchedMiner : hoveredMiner
 
   if (chartData.length === 0) {
     return (
@@ -99,7 +104,7 @@ export function MinerIncentiveChart({ minerStats }: MinerIncentiveChartProps) {
       <div className="md:hidden relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
-          placeholder="Search by hotkey or UID..."
+          placeholder="Search by Hotkey or UID..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           className="pl-9 bg-muted/30 text-sm"
@@ -157,7 +162,7 @@ export function MinerIncentiveChart({ minerStats }: MinerIncentiveChartProps) {
         <div className="hidden md:block relative w-64">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search miners by hotkey or UID..."
+            placeholder="Search Miners by Hotkey or UID..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="pl-9 bg-muted/30"
@@ -233,12 +238,12 @@ export function MinerIncentiveChart({ minerStats }: MinerIncentiveChartProps) {
                 let fill = '#10b981' // Default green
                 let radius = 4
 
-                if (isSearched && !isHovered) {
-                  fill = '#f59e0b' // Orange for searched
-                  radius = 6
+                if (isSearched) {
+                  fill = '#facc15' // Yellow for searched
+                  radius = 8
                 }
-                if (isHovered) {
-                  fill = '#22d3ee' // Cyan for hovered
+                if (isHovered && !searchTerm) {
+                  fill = '#22d3ee' // Cyan for hovered (only when not searching)
                   radius = 6
                 }
 

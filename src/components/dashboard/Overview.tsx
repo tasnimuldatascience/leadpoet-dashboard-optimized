@@ -20,10 +20,6 @@ import {
   DailyLeadsChart,
 } from '@/components/charts'
 import {
-  FileText,
-  CheckCircle,
-  XCircle,
-  Clock,
   Users,
   ArrowUpDown,
   ArrowUp,
@@ -31,11 +27,11 @@ import {
   Copy,
   Check,
   Download,
+  Database,
 } from 'lucide-react'
 import type {
   DashboardMetrics,
   MinerStats,
-  EpochStats,
   RejectionReason,
   LeadInventoryData,
 } from '@/lib/types'
@@ -46,7 +42,6 @@ type SortDirection = 'asc' | 'desc'
 interface OverviewProps {
   metrics: DashboardMetrics
   minerStats: MinerStats[]
-  epochStats: EpochStats[]
   rejectionReasons: RejectionReason[]
   activeMinerCount: number
   inventoryData: LeadInventoryData[]
@@ -56,7 +51,6 @@ interface OverviewProps {
 export function Overview({
   metrics,
   minerStats,
-  epochStats,
   rejectionReasons,
   activeMinerCount,
   inventoryData,
@@ -83,11 +77,15 @@ export function Overview({
     fetchTaoPrice()
   }, [])
 
-  // Get the current epoch ID for display
-  const currentEpochId = useMemo(() => {
-    const sortedEpochs = [...epochStats].sort((a, b) => b.epochId - a.epochId)
-    return sortedEpochs[0]?.epochId ?? null
-  }, [epochStats])
+  // Get current lead inventory (latest cumulative count)
+  const currentLeadInventory = useMemo(() => {
+    if (inventoryData.length === 0) return 0
+    // Sort by date descending and get the latest entry
+    const sorted = [...inventoryData].sort((a, b) =>
+      new Date(b.date).getTime() - new Date(a.date).getTime()
+    )
+    return sorted[0]?.totalValidInventory ?? 0
+  }, [inventoryData])
 
   // Leaderboard data uses pre-calculated epoch stats from minerStats
   const leaderboardData = minerStats
@@ -191,7 +189,7 @@ export function Overview({
 
   // Download CSV function for miner leaderboard
   const downloadMinerCSV = () => {
-    const headers = ['UID', 'Hotkey', 'Total', 'Accepted', 'Rejected', 'Pending', 'Rate%', 'Last20 Acc', 'Last20 Rej', 'Current Acc', 'Current Rej', 'BT Incentive%']
+    const headers = ['UID', 'Hotkey', 'Total', 'Accepted', 'Rejected', 'Pending', 'Approval Rate%', 'Last 20 Epochs Acc', 'Last 20 Epochs Rej', 'Current Acc', 'Current Rej', 'Incentive%']
     const rows = sortedLeaderboardData.map(m => [
       m.uid ?? '',
       m.minerHotkey,
@@ -216,39 +214,108 @@ export function Overview({
     URL.revokeObjectURL(url)
   }
 
+  // Download CSV function for lead distribution
+  const downloadLeadDistributionCSV = () => {
+    const headers = ['Status', 'Count', 'Percentage']
+    const total = metrics.accepted + metrics.rejected + metrics.pending
+    const rows = [
+      ['Accepted', metrics.accepted, total > 0 ? ((metrics.accepted / total) * 100).toFixed(2) + '%' : '0%'],
+      ['Rejected', metrics.rejected, total > 0 ? ((metrics.rejected / total) * 100).toFixed(2) + '%' : '0%'],
+      ['Pending', metrics.pending, total > 0 ? ((metrics.pending / total) * 100).toFixed(2) + '%' : '0%'],
+    ]
+    const csvContent = [headers, ...rows].map(row => row.join(',')).join('\n')
+    const blob = new Blob([csvContent], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'lead_distribution.csv'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  // Download CSV function for rejection reasons
+  const downloadRejectionReasonsCSV = () => {
+    const headers = ['Reason', 'Count', 'Percentage']
+    const rows = rejectionReasons.map(r => [
+      `"${r.reason.replace(/"/g, '""')}"`,
+      r.count,
+      r.percentage.toFixed(2) + '%'
+    ])
+    const csvContent = [headers, ...rows].map(row => row.join(',')).join('\n')
+    const blob = new Blob([csvContent], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'rejection_reasons.csv'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  // Download CSV function for inventory growth
+  const downloadInventoryGrowthCSV = () => {
+    const headers = ['Date', 'Total Valid Inventory']
+    const rows = inventoryData.map(d => [d.date, d.totalValidInventory])
+    const csvContent = [headers, ...rows].map(row => row.join(',')).join('\n')
+    const blob = new Blob([csvContent], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'inventory_growth.csv'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  // Download CSV function for daily leads
+  const downloadDailyLeadsCSV = () => {
+    const headers = ['Date', 'New Valid Leads']
+    const rows = inventoryData.map(d => [d.date, d.newValidLeads])
+    const csvContent = [headers, ...rows].map(row => row.join(',')).join('\n')
+    const blob = new Blob([csvContent], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'daily_valid_leads.csv'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  // Download CSV function for miner incentive distribution
+  const downloadMinerIncentiveCSV = () => {
+    const headers = ['Rank', 'UID', 'Hotkey', 'Incentive%']
+    const sorted = [...minerStats].sort((a, b) => b.btIncentive - a.btIncentive)
+    const rows = sorted.map((m, idx) => [
+      idx + 1,
+      m.uid ?? '',
+      m.minerHotkey,
+      m.btIncentive.toFixed(4)
+    ])
+    const csvContent = [headers, ...rows].map(row => row.join(',')).join('\n')
+    const blob = new Blob([csvContent], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'miner_incentive_distribution.csv'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <div className="space-y-4 md:space-y-6">
       {/* Metrics Row */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 md:gap-4">
+      <div className="grid grid-cols-2 gap-2 md:gap-6">
         <MetricCard
-          title="Total Submissions"
-          value={metrics.total.toLocaleString()}
-          icon={FileText}
+          title="Current Lead Inventory"
+          value={currentLeadInventory.toLocaleString()}
+          icon={Database}
           color="blue"
-        />
-        <MetricCard
-          title="Accepted"
-          value={metrics.accepted.toLocaleString()}
-          icon={CheckCircle}
-          color="green"
-        />
-        <MetricCard
-          title="Rejected"
-          value={metrics.rejected.toLocaleString()}
-          icon={XCircle}
-          color="red"
-        />
-        <MetricCard
-          title="Pending"
-          value={metrics.pending.toLocaleString()}
-          icon={Clock}
-          color="amber"
+          size="large"
         />
         <MetricCard
           title="Active Miners"
           value={activeMinerCount}
           icon={Users}
           color="cyan"
+          size="large"
         />
       </div>
 
@@ -257,10 +324,21 @@ export function Overview({
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
           <Card>
             <CardHeader className="p-4 md:p-6">
-              <CardTitle className="text-base md:text-lg">Valid Lead Inventory Growth</CardTitle>
-              <p className="text-xs md:text-sm text-muted-foreground">
-                Total sum of valid leads in database over time
-              </p>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-base md:text-lg">Lead Inventory</CardTitle>
+                  <p className="text-xs md:text-sm text-muted-foreground">
+                    Sum of accepted leads in inventory over time
+                  </p>
+                </div>
+                <button
+                  onClick={downloadInventoryGrowthCSV}
+                  className="flex items-center gap-1 px-2 py-1 md:px-3 md:py-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-md flex-shrink-0"
+                >
+                  <Download className="h-3 w-3" />
+                  <span className="hidden sm:inline">CSV</span>
+                </button>
+              </div>
             </CardHeader>
             <CardContent className="p-4 md:p-6 pt-0 md:pt-0">
               <InventoryGrowthChart data={inventoryData} />
@@ -269,10 +347,21 @@ export function Overview({
 
           <Card>
             <CardHeader className="p-4 md:p-6">
-              <CardTitle className="text-base md:text-lg">Daily Valid Lead Additions</CardTitle>
-              <p className="text-xs md:text-sm text-muted-foreground">
-                Number of valid leads entering inventory each day
-              </p>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-base md:text-lg">Daily Lead Inventory Growth</CardTitle>
+                  <p className="text-xs md:text-sm text-muted-foreground">
+                    Number of accepted leads entering inventory each day
+                  </p>
+                </div>
+                <button
+                  onClick={downloadDailyLeadsCSV}
+                  className="flex items-center gap-1 px-2 py-1 md:px-3 md:py-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-md flex-shrink-0"
+                >
+                  <Download className="h-3 w-3" />
+                  <span className="hidden sm:inline">CSV</span>
+                </button>
+              </div>
             </CardHeader>
             <CardContent className="p-4 md:p-6 pt-0 md:pt-0">
               <DailyLeadsChart data={inventoryData} />
@@ -285,7 +374,16 @@ export function Overview({
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
         <Card>
           <CardHeader className="p-4 md:p-6">
-            <CardTitle className="text-base md:text-lg">Lead Distribution</CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base md:text-lg">Lead Distribution</CardTitle>
+              <button
+                onClick={downloadLeadDistributionCSV}
+                className="flex items-center gap-1 px-2 py-1 md:px-3 md:py-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-md"
+              >
+                <Download className="h-3 w-3" />
+                <span className="hidden sm:inline">CSV</span>
+              </button>
+            </div>
           </CardHeader>
           <CardContent className="p-4 md:p-6 pt-0 md:pt-0">
             <DecisionPieChart
@@ -298,7 +396,16 @@ export function Overview({
 
         <Card>
           <CardHeader className="p-4 md:p-6">
-            <CardTitle className="text-base md:text-lg">Top Rejection Reasons</CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base md:text-lg">Top Rejection Reasons</CardTitle>
+              <button
+                onClick={downloadRejectionReasonsCSV}
+                className="flex items-center gap-1 px-2 py-1 md:px-3 md:py-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-md"
+              >
+                <Download className="h-3 w-3" />
+                <span className="hidden sm:inline">CSV</span>
+              </button>
+            </div>
           </CardHeader>
           <CardContent className="p-4 md:p-6 pt-0 md:pt-0">
             <RejectionBarChart data={rejectionReasons} maxItems={10} />
@@ -309,10 +416,21 @@ export function Overview({
       {/* Incentive Distribution */}
       <Card>
         <CardHeader className="p-4 md:p-6">
-          <CardTitle className="text-base md:text-lg">Miner Incentive Distribution</CardTitle>
-          <p className="text-xs md:text-sm text-muted-foreground">
-            Bittensor on-chain incentive ranked by miner performance
-          </p>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-base md:text-lg">Miner Incentive Distribution</CardTitle>
+              <p className="text-xs md:text-sm text-muted-foreground">
+                Bittensor on-chain incentive ranked by miner performance
+              </p>
+            </div>
+            <button
+              onClick={downloadMinerIncentiveCSV}
+              className="flex items-center gap-1 px-2 py-1 md:px-3 md:py-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-md flex-shrink-0"
+            >
+              <Download className="h-3 w-3" />
+              <span className="hidden sm:inline">CSV</span>
+            </button>
+          </div>
         </CardHeader>
         <CardContent className="p-4 md:p-6 pt-0 md:pt-0">
           <MinerIncentiveChart minerStats={minerStats} />
@@ -326,18 +444,15 @@ export function Overview({
             <CardTitle className="text-base md:text-lg">Miner Leaderboard</CardTitle>
             <button
               onClick={downloadMinerCSV}
-              className="flex items-center gap-1 px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded-md"
+              className="flex items-center gap-1 px-3 py-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-md"
             >
               <Download className="h-3 w-3" />
               CSV
             </button>
           </div>
-          <p className="text-xs text-muted-foreground md:hidden">
-            ← Scroll horizontally to see all columns →
-          </p>
         </CardHeader>
         <CardContent className="p-2 md:p-6 pt-0 md:pt-0">
-          <div className="rounded-md border max-h-[500px] md:max-h-[600px] overflow-auto relative">
+          <div className="rounded-md border max-h-[1000px] md:max-h-[1300px] overflow-auto relative">
             <Table className="text-xs md:text-sm">
               <TableHeader className="sticky top-0 z-20 bg-slate-900 shadow-sm">
                 <TableRow>
@@ -403,7 +518,7 @@ export function Overview({
                     onClick={() => handleSort('acceptanceRate')}
                   >
                     <div className="flex items-center justify-end whitespace-nowrap">
-                      Rate%
+                      Approval Rate
                       <SortIcon columnKey="acceptanceRate" />
                     </div>
                   </TableHead>
@@ -412,7 +527,7 @@ export function Overview({
                     onClick={() => handleSort('last20Accepted')}
                   >
                     <div className="flex items-center justify-center whitespace-nowrap">
-                      <span className="hidden sm:inline">Last 20</span>
+                      <span className="hidden sm:inline">Last 20 Epochs</span>
                       <span className="sm:hidden">L20</span>
                       <SortIcon columnKey="last20Accepted" />
                     </div>
@@ -432,7 +547,7 @@ export function Overview({
                     onClick={() => handleSort('btIncentive')}
                   >
                     <div className="flex items-center justify-end whitespace-nowrap">
-                      <span className="hidden sm:inline">BT Incentive</span>
+                      <span className="hidden sm:inline">Incentive</span>
                       <span className="sm:hidden">BT%</span>
                       <SortIcon columnKey="btIncentive" />
                     </div>
@@ -445,14 +560,14 @@ export function Overview({
                     <TableCell className="font-mono px-2 md:px-4">
                       {miner.uid ?? 'N/A'}
                     </TableCell>
-                    <TableCell className="font-mono text-xs px-2 md:px-4">
+                    <TableCell className="font-mono text-xs px-2 md:px-4 max-w-[120px] md:max-w-[200px]">
                       <div className="flex items-center gap-1">
                         <span
-                          className="text-blue-400 hover:text-blue-300 cursor-pointer hover:underline"
+                          className="text-blue-400 hover:text-blue-300 cursor-pointer hover:underline truncate"
                           onClick={() => handleHotkeyClick(miner.minerHotkey)}
-                          title="Click to view in Miner Tracker"
+                          title={miner.minerHotkey}
                         >
-                          {miner.minerHotkey}
+                          {miner.minerHotkey.substring(0, 16)}...
                         </span>
                         <button
                           onClick={(e) => handleCopyHotkey(miner.minerHotkey, e)}

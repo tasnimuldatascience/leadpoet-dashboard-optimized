@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Select,
@@ -31,6 +31,7 @@ import {
   Copy,
   Check,
   Download,
+  Search,
 } from 'lucide-react'
 import type { EpochStats, MetagraphData } from '@/lib/types'
 
@@ -42,12 +43,27 @@ interface EpochAnalysisProps {
   epochStats: EpochStats[]
   metagraph: MetagraphData | null
   onMinerClick?: (minerHotkey: string) => void
+  externalSelectedEpoch?: number | null
+  onEpochSelected?: () => void
 }
 
-export function EpochAnalysis({ epochStats, metagraph, onMinerClick }: EpochAnalysisProps) {
+export function EpochAnalysis({ epochStats, metagraph, onMinerClick, externalSelectedEpoch, onEpochSelected }: EpochAnalysisProps) {
   const [selectedEpoch, setSelectedEpoch] = useState<number | null>(
     epochStats.length > 0 ? epochStats[0].epochId : null
   )
+  const epochDataRef = useRef<HTMLDivElement>(null)
+
+  // Handle external epoch selection
+  useEffect(() => {
+    if (externalSelectedEpoch !== undefined && externalSelectedEpoch !== null) {
+      setSelectedEpoch(externalSelectedEpoch)
+      onEpochSelected?.()
+      // Scroll to epoch data section after a brief delay for render
+      setTimeout(() => {
+        epochDataRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }, 100)
+    }
+  }, [externalSelectedEpoch, onEpochSelected])
   const [epochSearch, setEpochSearch] = useState('')
   const [sortField, setSortField] = useState<SortField | null>(null)
   const [sortOrder, setSortOrder] = useState<SortOrder>(null)
@@ -204,7 +220,7 @@ export function EpochAnalysis({ epochStats, metagraph, onMinerClick }: EpochAnal
 
   // Download Epoch Overview CSV
   const downloadEpochOverviewCSV = () => {
-    const headers = ['Epoch ID', 'Total Consensus', 'Approved', 'Rejected', 'Avg Score', 'Acceptance Rate%']
+    const headers = ['Epoch ID', 'Total Validated', 'Approved', 'Rejected', 'Avg Score', 'Acceptance Rate%']
     const rows = sortedEpochStats.map(e => [
       e.epochId,
       e.total,
@@ -226,7 +242,7 @@ export function EpochAnalysis({ epochStats, metagraph, onMinerClick }: EpochAnal
   // Download Miners in Epoch CSV
   const downloadMinersInEpochCSV = () => {
     if (!selectedEpoch) return
-    const headers = ['UID', 'Hotkey', 'Total', 'Accepted', 'Rejected', 'Rate%', 'BT Incentive%']
+    const headers = ['UID', 'Hotkey', 'Total', 'Accepted', 'Rejected', 'Approval Rate%', 'Incentive%']
     const rows = epochMinerStats.map(m => [
       m.uid ?? '',
       m.minerHotkey,
@@ -275,7 +291,7 @@ export function EpochAnalysis({ epochStats, metagraph, onMinerClick }: EpochAnal
             <CardTitle className="text-lg">Epoch Overview</CardTitle>
             <button
               onClick={downloadEpochOverviewCSV}
-              className="flex items-center gap-1 px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded-md"
+              className="flex items-center gap-1 px-2 py-1 md:px-3 md:py-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-md"
             >
               <Download className="h-3 w-3" />
               CSV
@@ -285,7 +301,7 @@ export function EpochAnalysis({ epochStats, metagraph, onMinerClick }: EpochAnal
         <CardContent>
           <div className="rounded-md border max-h-80 overflow-auto">
             <Table>
-              <TableHeader>
+              <TableHeader className="sticky top-0 bg-slate-900 z-10">
                 <TableRow>
                   <TableHead
                     className="cursor-pointer hover:bg-muted/50 select-none"
@@ -300,7 +316,7 @@ export function EpochAnalysis({ epochStats, metagraph, onMinerClick }: EpochAnal
                     onClick={() => handleEpochSort('total')}
                   >
                     <div className="flex items-center justify-end">
-                      Total Consensus {getEpochSortIcon('total')}
+                      Total Validated {getEpochSortIcon('total')}
                     </div>
                   </TableHead>
                   <TableHead
@@ -374,24 +390,40 @@ export function EpochAnalysis({ epochStats, metagraph, onMinerClick }: EpochAnal
           <label className="text-sm text-muted-foreground mb-2 block">
             Search Epoch
           </label>
-          <input
-            type="text"
-            inputMode="numeric"
-            pattern="[0-9]*"
-            placeholder="Enter epoch ID and press Enter..."
-            value={epochSearch}
-            onChange={(e) => setEpochSearch(e.target.value.replace(/\D/g, ''))}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && epochSearch) {
-                const found = epochStats.find(ep => ep.epochId.toString() === epochSearch)
-                if (found) {
-                  setSelectedEpoch(found.epochId)
-                  setEpochSearch('')
+          <div className="flex gap-2">
+            <input
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              placeholder="Enter Epoch ID..."
+              value={epochSearch}
+              onChange={(e) => setEpochSearch(e.target.value.replace(/\D/g, ''))}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && epochSearch) {
+                  const found = epochStats.find(ep => ep.epochId.toString() === epochSearch)
+                  if (found) {
+                    setSelectedEpoch(found.epochId)
+                    setEpochSearch('')
+                  }
                 }
-              }
-            }}
-            className="w-full px-3 py-2 bg-background border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
+              }}
+              className="flex-1 px-3 py-2 bg-background border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <button
+              onClick={() => {
+                if (epochSearch) {
+                  const found = epochStats.find(ep => ep.epochId.toString() === epochSearch)
+                  if (found) {
+                    setSelectedEpoch(found.epochId)
+                    setEpochSearch('')
+                  }
+                }
+              }}
+              className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-md text-sm"
+            >
+              <Search className="h-4 w-4" />
+            </button>
+          </div>
         </div>
         <div>
           <label className="text-sm text-muted-foreground mb-2 block">
@@ -405,7 +437,7 @@ export function EpochAnalysis({ epochStats, metagraph, onMinerClick }: EpochAnal
             }}
           >
             <SelectTrigger>
-              <SelectValue placeholder="Select epoch..." />
+              <SelectValue placeholder="Select Epoch..." />
             </SelectTrigger>
             <SelectContent>
               {epochStats.map((epoch) => (
@@ -419,11 +451,11 @@ export function EpochAnalysis({ epochStats, metagraph, onMinerClick }: EpochAnal
       </div>
 
       {selectedEpoch !== null && selectedEpochStats && (
-        <>
+        <div ref={epochDataRef}>
           {/* Epoch Metrics */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
             <MetricCard
-              title="Total Submissions"
+              title="Total Validated"
               value={selectedEpochStats.total}
               icon={FileText}
               color="blue"
@@ -463,7 +495,7 @@ export function EpochAnalysis({ epochStats, metagraph, onMinerClick }: EpochAnal
                 </CardTitle>
                 <button
                   onClick={downloadMinersInEpochCSV}
-                  className="flex items-center gap-1 px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded-md"
+                  className="flex items-center gap-1 px-2 py-1 md:px-3 md:py-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-md"
                 >
                   <Download className="h-3 w-3" />
                   CSV
@@ -471,9 +503,9 @@ export function EpochAnalysis({ epochStats, metagraph, onMinerClick }: EpochAnal
               </div>
             </CardHeader>
             <CardContent>
-              <div className="rounded-md border">
+              <div className="rounded-md border max-h-96 overflow-auto">
                 <Table>
-                  <TableHeader>
+                  <TableHeader className="sticky top-0 bg-slate-900 z-10">
                     <TableRow>
                       <TableHead
                         className="w-16 cursor-pointer hover:bg-muted/50 select-none"
@@ -483,7 +515,7 @@ export function EpochAnalysis({ epochStats, metagraph, onMinerClick }: EpochAnal
                           UID {getSortIcon('uid')}
                         </div>
                       </TableHead>
-                      <TableHead>Miner</TableHead>
+                      <TableHead>Hotkey</TableHead>
                       <TableHead
                         className="text-right cursor-pointer hover:bg-muted/50 select-none"
                         onClick={() => handleSort('total')}
@@ -513,7 +545,7 @@ export function EpochAnalysis({ epochStats, metagraph, onMinerClick }: EpochAnal
                         onClick={() => handleSort('acceptanceRate')}
                       >
                         <div className="flex items-center justify-end">
-                          Rate % {getSortIcon('acceptanceRate')}
+                          Approval Rate {getSortIcon('acceptanceRate')}
                         </div>
                       </TableHead>
                       <TableHead
@@ -521,7 +553,7 @@ export function EpochAnalysis({ epochStats, metagraph, onMinerClick }: EpochAnal
                         onClick={() => handleSort('btIncentive')}
                       >
                         <div className="flex items-center justify-end">
-                          BT Incentive {getSortIcon('btIncentive')}
+                          Incentive {getSortIcon('btIncentive')}
                         </div>
                       </TableHead>
                     </TableRow>
@@ -538,14 +570,14 @@ export function EpochAnalysis({ epochStats, metagraph, onMinerClick }: EpochAnal
                             {miner.uid ?? 'N/A'}
                           </span>
                         </TableCell>
-                        <TableCell className="font-mono text-xs">
+                        <TableCell className="font-mono text-xs max-w-[200px]">
                           <div className="flex items-center gap-2 group">
                             <span
-                              className="cursor-pointer hover:text-blue-400"
+                              className="cursor-pointer hover:text-blue-400 truncate"
                               onClick={() => onMinerClick?.(miner.minerHotkey)}
-                              title="Click to view in Miner Tracker"
+                              title={miner.minerHotkey}
                             >
-                              {miner.minerShort}
+                              {miner.minerShort.substring(0, 16)}...
                             </span>
                             <button
                               onClick={(e) => handleCopyMiner(miner.minerHotkey, e)}
@@ -580,8 +612,7 @@ export function EpochAnalysis({ epochStats, metagraph, onMinerClick }: EpochAnal
               </div>
             </CardContent>
           </Card>
-
-        </>
+        </div>
       )}
     </div>
   )

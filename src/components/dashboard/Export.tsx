@@ -207,7 +207,7 @@ export function Export({
         <CardContent>
           <div className="rounded-md border max-h-96 overflow-auto">
             <Table>
-              <TableHeader>
+              <TableHeader className="sticky top-0 bg-slate-900 z-10">
                 <TableRow>
                   {previewData.headers.map((header, idx) => (
                     <TableHead key={idx}>{header}</TableHead>

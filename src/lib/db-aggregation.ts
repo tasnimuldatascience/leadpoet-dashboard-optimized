@@ -21,8 +21,8 @@ function getTimeCutoff(hours: number): string | null {
   return new Date(Date.now() - hours * 60 * 60 * 1000).toISOString()
 }
 
-// Clean up rejection reason
-function cleanRejectionReason(reason: string | null | undefined): string {
+// Clean up rejection reason - exported for use in UI components
+export function cleanRejectionReason(reason: string | null | undefined): string {
   if (!reason || reason === 'N/A') return 'N/A'
 
   try {
@@ -100,6 +100,7 @@ export interface MergedLead {
   timestamp: string
   minerHotkey: string
   emailHash: string
+  leadId: string | null
   epochId: number | null
   decision: 'ACCEPTED' | 'REJECTED' | 'PENDING'
   repScore: number | null
@@ -201,13 +202,13 @@ export interface LeadJourneyEntry {
 }
 
 // Result type including original submission count
-interface MergedLeadsResult {
+export interface MergedLeadsResult {
   leads: MergedLead[]
   totalSubmissions: number  // Count before email_hash deduplication
 }
 
 // Fetch and merge submissions with consensus - SINGLE fetch, used by all aggregations
-async function fetchMergedLeads(hours: number, metagraph: MetagraphData | null): Promise<MergedLeadsResult> {
+export async function fetchMergedLeads(hours: number, metagraph: MetagraphData | null): Promise<MergedLeadsResult> {
   console.log(`[DB] Fetching merged leads (hours=${hours})...`)
   const startTime = Date.now()
   const cutoff = getTimeCutoff(hours)
@@ -217,15 +218,15 @@ async function fetchMergedLeads(hours: number, metagraph: MetagraphData | null):
   const metagraphHotkeys = metagraph ? Object.keys(metagraph.hotkeyToUid) : []
   const activeMiners = metagraphHotkeys.length > 0 ? new Set(metagraphHotkeys) : null
 
-  // Fetch submissions (primary source)
-  const allSubmissions: Array<{ ts: string; actor_hotkey: string; email_hash: string }> = []
+  // Fetch submissions (primary source) - include payload for lead_id
+  const allSubmissions: Array<{ ts: string; actor_hotkey: string; email_hash: string; payload: { lead_id?: string } | null }> = []
   let offset = 0
   const batchSize = 1000
 
   while (true) {
     let query = supabase
       .from('transparency_log')
-      .select('ts,actor_hotkey,email_hash')
+      .select('ts,actor_hotkey,email_hash,payload')
       .eq('event_type', 'SUBMISSION')
       .not('actor_hotkey', 'is', null)
       .not('email_hash', 'is', null)
@@ -296,6 +297,7 @@ async function fetchMergedLeads(hours: number, metagraph: MetagraphData | null):
       timestamp: sub.ts,
       minerHotkey: sub.actor_hotkey,
       emailHash: sub.email_hash,
+      leadId: sub.payload?.lead_id ?? null,
       epochId: cons?.epoch_id ?? null,
       decision: cons ? normalizeDecision(cons.decision) : 'PENDING',
       repScore: cons?.rep_score ?? null,
@@ -371,6 +373,13 @@ export async function fetchAllDashboardData(hours: number, metagraph: MetagraphD
     warmCacheInBackground(metagraph)
   }
 
+  // Pre-warm latest leads cache if not already cached
+  if (!simpleCache.get('latestLeads', 0)) {
+    fetchLatestLeads(metagraph).catch(err => {
+      console.error('[Cache] Failed to pre-warm latest leads:', err)
+    })
+  }
+
   return result
 }
 
@@ -392,6 +401,9 @@ async function refreshDataInBackground(hours: number, metagraph: MetagraphData |
 
     const result = { summary, minerStats, epochStats, leadInventory, rejectionReasons, incentiveData }
     simpleCache.set('dashboard', result, hours)
+
+    // Also refresh latest leads cache (invalidate so next request fetches fresh)
+    simpleCache.delete('latestLeads', 0)
 
     const totalTime = Date.now() - startTime
     console.log(`[Cache] Background refresh completed for hours=${hours} in ${totalTime}ms`)
@@ -428,6 +440,16 @@ async function warmCacheInBackground(metagraph: MetagraphData | null) {
       simpleCache.set('dashboard', result, hours)
     } catch (err) {
       console.error(`[Cache] Failed to warm cache for hours=${hours}:`, err)
+    }
+  }
+
+  // Also warm latest leads cache
+  if (!simpleCache.get('latestLeads', 0)) {
+    try {
+      console.log('[Cache] Warming latest leads cache...')
+      await fetchLatestLeads(metagraph)
+    } catch (err) {
+      console.error('[Cache] Failed to warm latest leads cache:', err)
     }
   }
 
@@ -811,4 +833,116 @@ export async function fetchLeadJourneyData(metagraph: MetagraphData | null): Pro
   console.log(`[DB] Lead journey: ${entries.length} entries in ${fetchTime}ms`)
 
   return entries
+}
+
+// ============================================
+// Latest 100 Leads (cached, refreshes with system)
+// ============================================
+
+export interface LatestLead {
+  emailHash: string
+  minerHotkey: string
+  uid: number | null
+  leadId: string | null
+  timestamp: string
+  epochId: number | null
+  decision: 'ACCEPTED' | 'REJECTED' | 'PENDING'
+  repScore: number | null
+  rejectionReason: string | null
+}
+
+export async function fetchLatestLeads(metagraph: MetagraphData | null): Promise<LatestLead[]> {
+  // Check cache first (uses same 5-min TTL as dashboard)
+  const cached = simpleCache.get<LatestLead[]>('latestLeads', 0)
+  if (cached) {
+    console.log('[Cache] HIT for latestLeads')
+    return cached
+  }
+
+  console.log('[DB] Fetching latest 100 leads...')
+  const startTime = Date.now()
+
+  // Get hotkey to UID mapping
+  const hotkeyToUid = metagraph?.hotkeyToUid || {}
+  const activeMiners = metagraph ? new Set(Object.keys(metagraph.hotkeyToUid)) : null
+
+  // Fetch latest 100 CONSENSUS_RESULT events
+  const { data: consensusData, error: consError } = await supabase
+    .from('transparency_log')
+    .select('ts, email_hash, payload')
+    .eq('event_type', 'CONSENSUS_RESULT')
+    .not('email_hash', 'is', null)
+    .order('ts', { ascending: false })
+    .limit(150) // Fetch extra to account for filtering
+
+  if (consError) {
+    console.error('[DB] Error fetching latest leads:', consError)
+    return []
+  }
+
+  if (!consensusData || consensusData.length === 0) {
+    return []
+  }
+
+  const emailHashes = consensusData.map(c => c.email_hash).filter(Boolean)
+
+  // Fetch submissions for lead_id and miner hotkey
+  const { data: submissionData } = await supabase
+    .from('transparency_log')
+    .select('email_hash, actor_hotkey, ts, payload')
+    .eq('event_type', 'SUBMISSION')
+    .in('email_hash', emailHashes)
+
+  const submissionMap = new Map<string, { lead_id?: string; actor_hotkey?: string; ts?: string }>()
+  if (submissionData) {
+    for (const row of submissionData) {
+      if (!row.email_hash || submissionMap.has(row.email_hash)) continue
+      const payload = row.payload as { lead_id?: string } | null
+      submissionMap.set(row.email_hash, {
+        lead_id: payload?.lead_id,
+        actor_hotkey: row.actor_hotkey,
+        ts: row.ts,
+      })
+    }
+  }
+
+  // Build leads
+  const leads: LatestLead[] = []
+  for (const cons of consensusData) {
+    if (leads.length >= 100) break
+
+    const submission = submissionMap.get(cons.email_hash)
+    const minerHotkey = submission?.actor_hotkey || ''
+
+    // Filter by active miners if metagraph available
+    if (activeMiners && !activeMiners.has(minerHotkey)) continue
+
+    const payload = cons.payload as {
+      lead_id?: string
+      epoch_id?: number
+      final_decision?: string
+      final_rep_score?: number
+      primary_rejection_reason?: string
+    } | null
+
+    leads.push({
+      emailHash: cons.email_hash,
+      minerHotkey,
+      uid: hotkeyToUid[minerHotkey] ?? null,
+      leadId: payload?.lead_id || submission?.lead_id || null,
+      timestamp: submission?.ts || cons.ts,
+      epochId: payload?.epoch_id ?? null,
+      decision: normalizeDecision(payload?.final_decision),
+      repScore: payload?.final_rep_score ?? null,
+      rejectionReason: payload?.primary_rejection_reason ? cleanRejectionReason(payload.primary_rejection_reason) : null,
+    })
+  }
+
+  // Cache the results
+  simpleCache.set('latestLeads', leads, 0)
+
+  const fetchTime = Date.now() - startTime
+  console.log(`[DB] Fetched ${leads.length} latest leads in ${fetchTime}ms`)
+
+  return leads
 }

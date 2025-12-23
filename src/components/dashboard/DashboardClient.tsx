@@ -52,7 +52,24 @@ export function DashboardClient({ initialData, metagraph: initialMetagraph }: Da
   const [timeFilter, setTimeFilter] = useState<TimeFilterOption>('all')
   const [activeTab, setActiveTab] = useState('overview')
   const [selectedMinerHotkey, setSelectedMinerHotkey] = useState<string | null>(null)
+  const [selectedEpochId, setSelectedEpochId] = useState<number | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+
+  // Handle navigation from SubmissionTracker to MinerTracker
+  const handleUidClick = useCallback((uid: number) => {
+    // Find the hotkey for this UID
+    const hotkey = Object.entries(metagraph?.hotkeyToUid ?? {}).find(([, u]) => u === uid)?.[0]
+    if (hotkey) {
+      setSelectedMinerHotkey(hotkey)
+      setActiveTab('miner-tracker')
+    }
+  }, [metagraph?.hotkeyToUid])
+
+  // Handle navigation from SubmissionTracker to EpochAnalysis
+  const handleEpochClick = useCallback((epochId: number) => {
+    setSelectedEpochId(epochId)
+    setActiveTab('epoch-analysis')
+  }, [])
 
   // Ref to track if component is mounted
   const isMounted = useRef(true)
@@ -253,15 +270,10 @@ export function DashboardClient({ initialData, metagraph: initialMetagraph }: Da
             )}
           </div>
           <p className="text-xs sm:text-sm text-muted-foreground mt-1 ml-0 lg:ml-0">
-            {timeFilter === 'all'
-              ? 'Showing all available data'
-              : `Showing last ${timeFilter === '7d' ? '7 days' : timeFilter}`}{' '}
-            | <strong>{metrics.total.toLocaleString()}</strong> submissions
             {lastRefresh && (
-              <span className="ml-2 text-xs hidden sm:inline">
-                (Updated: {lastRefresh.toLocaleTimeString()})
-              </span>
+              <span>Last updated at {lastRefresh.toLocaleDateString()} {lastRefresh.toLocaleTimeString()}</span>
             )}
+            {' '}| <strong>{metrics.total.toLocaleString()}</strong> total lead submissions
           </p>
         </div>
 
@@ -303,7 +315,6 @@ export function DashboardClient({ initialData, metagraph: initialMetagraph }: Da
             <Overview
               metrics={metrics}
               minerStats={minerStats}
-              epochStats={epochStats}
               rejectionReasons={rejectionReasons}
               activeMinerCount={activeMinerCount}
               inventoryData={inventoryData}
@@ -315,7 +326,6 @@ export function DashboardClient({ initialData, metagraph: initialMetagraph }: Da
             <MinerTracker
               minerStats={minerStats}
               activeMiners={activeMiners}
-              metagraph={metagraph}
               externalSelectedMiner={selectedMinerHotkey}
               onMinerSelected={() => setSelectedMinerHotkey(null)}
             />
@@ -326,11 +336,18 @@ export function DashboardClient({ initialData, metagraph: initialMetagraph }: Da
               epochStats={epochStats}
               metagraph={metagraph}
               onMinerClick={handleMinerClick}
+              externalSelectedEpoch={selectedEpochId}
+              onEpochSelected={() => setSelectedEpochId(null)}
             />
           </TabsContent>
 
           <TabsContent value="submission-tracker">
-            <SubmissionTracker />
+            <SubmissionTracker
+              minerStats={minerStats}
+              epochStats={epochStats}
+              onUidClick={handleUidClick}
+              onEpochClick={handleEpochClick}
+            />
           </TabsContent>
         </Tabs>
       </div>

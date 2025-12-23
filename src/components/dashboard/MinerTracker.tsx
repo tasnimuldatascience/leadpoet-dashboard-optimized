@@ -20,19 +20,16 @@ import {
   Percent,
   Activity,
   Coins,
-  TrendingUp,
   Wallet,
   Zap,
+  Download,
+  Search,
 } from 'lucide-react'
-import type {
-  MinerStats,
-  MetagraphData,
-} from '@/lib/types'
+import type { MinerStats } from '@/lib/types'
 
 interface MinerTrackerProps {
   minerStats: MinerStats[]
   activeMiners: string[]
-  metagraph: MetagraphData | null
   externalSelectedMiner?: string | null
   onMinerSelected?: () => void
 }
@@ -40,7 +37,6 @@ interface MinerTrackerProps {
 export function MinerTracker({
   minerStats,
   activeMiners,
-  metagraph,
   externalSelectedMiner,
   onMinerSelected,
 }: MinerTrackerProps) {
@@ -128,12 +124,45 @@ export function MinerTracker({
     return selectedMinerStats.rejectionReasons
   }, [selectedMinerStats])
 
-  // Calculate incentive share for selected miner
-  const incentiveShare = useMemo(() => {
-    if (!selectedMinerStats) return 0
-    const totalAccepted = minerStats.reduce((sum, m) => sum + m.accepted, 0)
-    return totalAccepted > 0 ? (selectedMinerStats.accepted / totalAccepted) * 100 : 0
-  }, [minerStats, selectedMinerStats])
+  // Download CSV function for epoch performance
+  const downloadEpochPerformanceCSV = () => {
+    if (!selectedMinerStats || minerEpochStats.length === 0) return
+    const headers = ['Epoch ID', 'Total', 'Accepted', 'Rejected', 'Acceptance Rate%']
+    const rows = minerEpochStats.map(ep => [
+      ep.epochId,
+      ep.total,
+      ep.accepted,
+      ep.rejected,
+      ep.acceptanceRate
+    ])
+    const csvContent = [headers, ...rows].map(row => row.join(',')).join('\n')
+    const blob = new Blob([csvContent], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `miner_${selectedMinerStats.uid ?? 'unknown'}_epoch_performance.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  // Download CSV function for miner rejection reasons
+  const downloadMinerRejectionReasonsCSV = () => {
+    if (!selectedMinerStats || minerRejectionReasons.length === 0) return
+    const headers = ['Reason', 'Count', 'Percentage']
+    const rows = minerRejectionReasons.map(r => [
+      `"${r.reason.replace(/"/g, '""')}"`,
+      r.count,
+      r.percentage.toFixed(2) + '%'
+    ])
+    const csvContent = [headers, ...rows].map(row => row.join(',')).join('\n')
+    const blob = new Blob([csvContent], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `miner_${selectedMinerStats.uid ?? 'unknown'}_rejection_reasons.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
 
   return (
     <div className="space-y-6">
@@ -141,18 +170,27 @@ export function MinerTracker({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
           <label className="text-sm text-muted-foreground mb-2 block">
-            Search by hotkey or UID
+            Search by Hotkey or UID
           </label>
-          <Input
-            placeholder="Enter hotkey or UID..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                handleSearchSubmit()
-              }
-            }}
-          />
+          <div className="flex gap-2">
+            <Input
+              placeholder="Enter Hotkey or UID..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  handleSearchSubmit()
+                }
+              }}
+              className="flex-1"
+            />
+            <button
+              onClick={handleSearchSubmit}
+              className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-md text-sm"
+            >
+              <Search className="h-4 w-4" />
+            </button>
+          </div>
         </div>
         <div>
           <label className="text-sm text-muted-foreground mb-2 block">
@@ -165,7 +203,7 @@ export function MinerTracker({
             }}
           >
             <SelectTrigger>
-              <SelectValue placeholder="Select a miner..." />
+              <SelectValue placeholder="Select a Hotkey..." />
             </SelectTrigger>
             <SelectContent>
               {filteredMiners.map((miner) => {
@@ -185,13 +223,13 @@ export function MinerTracker({
       {selectedMiner && selectedMinerStats && (
         <>
           {/* Miner Info */}
-          <Card className="bg-blue-500/10 border-blue-500/30">
-            <CardContent className="pt-4">
-              <div className="flex items-center justify-center gap-4 flex-wrap">
-                <Badge variant="outline" className="text-lg px-3 py-1">
+          <Card className="bg-blue-500/10 border-blue-500/30 overflow-hidden">
+            <CardContent className="pt-4 px-3 md:px-6">
+              <div className="flex items-center justify-center gap-2 md:gap-4 flex-wrap">
+                <Badge variant="outline" className="text-base md:text-lg px-2 md:px-3 py-1 flex-shrink-0">
                   UID: {selectedMinerStats.uid ?? 'N/A'}
                 </Badge>
-                <span className="font-mono text-sm text-muted-foreground">
+                <span className="font-mono text-xs md:text-sm text-muted-foreground break-all text-center">
                   {selectedMiner}
                 </span>
               </div>
@@ -200,7 +238,6 @@ export function MinerTracker({
 
           {/* Performance Metrics */}
           <div>
-            <h3 className="text-sm font-medium mb-3">Performance Metrics</h3>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <MetricCard
                 title="Total Submissions"
@@ -231,19 +268,12 @@ export function MinerTracker({
 
           {/* Incentive Metrics */}
           <div>
-            <h3 className="text-sm font-medium mb-3">Incentive & Reputation</h3>
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <MetricCard
                 title="Avg Rep Score"
                 value={selectedMinerStats.avgRepScore.toFixed(3)}
                 icon={Activity}
                 color="cyan"
-              />
-              <MetricCard
-                title="Lead Share"
-                value={`${incentiveShare.toFixed(2)}%`}
-                icon={TrendingUp}
-                color="blue"
               />
               <MetricCard
                 title="Incentive"
@@ -252,7 +282,7 @@ export function MinerTracker({
                 color="green"
               />
               <MetricCard
-                title="Emission"
+                title="Emission per Epoch"
                 value={`${(selectedMinerStats.btEmission || 0).toFixed(4)} ㄴ`}
                 icon={Zap}
                 color="purple"
@@ -268,21 +298,38 @@ export function MinerTracker({
 
           {/* Epoch Performance Chart */}
           <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Epoch-wide Performance</CardTitle>
+            <CardHeader className="p-4 md:p-6">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base md:text-lg">Epoch Performance</CardTitle>
+                <button
+                  onClick={downloadEpochPerformanceCSV}
+                  className="flex items-center gap-1 px-2 py-1 md:px-3 md:py-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-md"
+                >
+                  <Download className="h-3 w-3" />
+                  <span className="hidden sm:inline">CSV</span>
+                </button>
+              </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-4 md:p-6 pt-0 md:pt-0">
               <EpochStackedChart data={minerEpochStats} maxEpochs={20} />
             </CardContent>
           </Card>
 
-
           {/* Rejection Reasons */}
           <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Rejection Reasons</CardTitle>
+            <CardHeader className="p-4 md:p-6">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base md:text-lg">Rejection Reasons</CardTitle>
+                <button
+                  onClick={downloadMinerRejectionReasonsCSV}
+                  className="flex items-center gap-1 px-2 py-1 md:px-3 md:py-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-md"
+                >
+                  <Download className="h-3 w-3" />
+                  <span className="hidden sm:inline">CSV</span>
+                </button>
+              </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-4 md:p-6 pt-0 md:pt-0">
               <RejectionBarChart data={minerRejectionReasons} maxItems={10} />
             </CardContent>
           </Card>

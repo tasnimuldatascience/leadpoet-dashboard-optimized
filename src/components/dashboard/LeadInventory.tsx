@@ -90,7 +90,7 @@ export function LeadInventory({ data }: LeadInventoryProps) {
         <CardContent>
           <div className="rounded-md border max-h-80 overflow-auto">
             <Table>
-              <TableHeader>
+              <TableHeader className="sticky top-0 bg-slate-900 z-10">
                 <TableRow>
                   <TableHead>Date</TableHead>
                   <TableHead className="text-right">New Valid Leads</TableHead>

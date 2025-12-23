@@ -39,16 +39,22 @@ export function EpochStackedChart({ data, maxEpochs = 20 }: EpochStackedChartPro
       <ResponsiveContainer width="100%" height="100%">
         <BarChart
           data={chartData}
-          margin={{ top: 20, right: 20, left: 10, bottom: 5 }}
+          margin={{ top: 20, right: 20, left: 20, bottom: 60 }}
         >
           <XAxis
             dataKey="epochId"
             stroke="#94a3b8"
             fontSize={10}
-            tickFormatter={(value) => `E${value}`}
+            tickFormatter={(value) => value}
             interval="preserveStartEnd"
+            label={{ value: 'Epoch ID', position: 'bottom', offset: 10, style: { fill: '#94a3b8', fontSize: 12 } }}
           />
-          <YAxis stroke="#94a3b8" fontSize={10} width={40} />
+          <YAxis
+            stroke="#94a3b8"
+            fontSize={10}
+            width={50}
+            label={{ value: 'Leads', angle: -90, position: 'insideLeft', offset: 10, style: { fill: '#94a3b8', fontSize: 12 } }}
+          />
           <Tooltip
             contentStyle={{
               backgroundColor: '#1e293b',
@@ -62,7 +68,9 @@ export function EpochStackedChart({ data, maxEpochs = 20 }: EpochStackedChartPro
             labelFormatter={(label) => `Epoch ${label}`}
           />
           <Legend
-            wrapperStyle={{ fontSize: '12px' }}
+            verticalAlign="bottom"
+            align="center"
+            wrapperStyle={{ fontSize: '12px', paddingTop: '35px', width: '100%', display: 'flex', justifyContent: 'center' }}
           />
           <Bar
             dataKey="accepted"

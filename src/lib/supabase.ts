@@ -214,3 +214,160 @@ export async function fetchLeadJourney(emailHash: string): Promise<TransparencyL
 
   return data || []
 }
+
+// Lead search result type
+export interface LeadSearchResult {
+  emailHash: string
+  minerHotkey: string
+  leadId: string | null
+  epochId: number | null
+  decision: 'ACCEPTED' | 'REJECTED' | 'PENDING'
+  repScore: number | null
+  timestamp: string
+}
+
+// Normalize decision values
+function normalizeDecision(decision: string | undefined): 'ACCEPTED' | 'REJECTED' | 'PENDING' {
+  if (!decision) return 'PENDING'
+  const lower = decision.toLowerCase()
+  if (['deny', 'denied', 'reject', 'rejected'].includes(lower)) return 'REJECTED'
+  if (['allow', 'allowed', 'accept', 'accepted', 'approve', 'approved'].includes(lower)) return 'ACCEPTED'
+  return 'PENDING'
+}
+
+// Search leads with filters - queries database directly
+export async function searchLeads(filters: {
+  minerHotkey?: string
+  epochId?: number
+  decision?: 'ACCEPTED' | 'REJECTED' | 'PENDING'
+  emailHashPrefix?: string
+  page?: number
+  limit?: number
+}): Promise<{ leads: LeadSearchResult[], total: number, hasMore: boolean }> {
+  const page = filters.page ?? 1
+  const limit = Math.min(filters.limit ?? 100, 500)  // Max 500 per request
+  const offset = (page - 1) * limit
+
+  console.log(`[DB] Searching leads with filters:`, { ...filters, page, limit })
+
+  // Strategy: Query CONSENSUS_RESULT first (has epochId), then join with submissions
+  // This is faster because we filter by epochId at database level
+
+  // Step 1: Get consensus results (optionally filtered by epochId)
+  let consensusQuery = supabase
+    .from('transparency_log')
+    .select('email_hash,payload,ts')
+    .eq('event_type', 'CONSENSUS_RESULT')
+    .order('ts', { ascending: false })
+
+  // Filter by epochId if provided (using JSONB contains)
+  if (filters.epochId !== undefined) {
+    consensusQuery = consensusQuery.filter('payload->>epoch_id', 'eq', filters.epochId.toString())
+  }
+
+  // Filter by decision if provided
+  if (filters.decision) {
+    const decisionValue = filters.decision === 'ACCEPTED' ? 'ALLOW' :
+                          filters.decision === 'REJECTED' ? 'DENY' : null
+    if (decisionValue) {
+      consensusQuery = consensusQuery.filter('payload->>final_decision', 'eq', decisionValue)
+    }
+  }
+
+  // Filter by email hash prefix if provided
+  if (filters.emailHashPrefix) {
+    consensusQuery = consensusQuery.ilike('email_hash', `${filters.emailHashPrefix}%`)
+  }
+
+  // Execute with pagination
+  const { data: consensusData, error: consensusError } = await consensusQuery
+    .range(offset, offset + limit)
+
+  if (consensusError) {
+    console.error('[DB] Error fetching consensus results:', consensusError)
+    return { leads: [], total: 0, hasMore: false }
+  }
+
+  if (!consensusData || consensusData.length === 0) {
+    return { leads: [], total: 0, hasMore: false }
+  }
+
+  // Build email hash to consensus map
+  const emailHashes = consensusData.map(c => c.email_hash).filter(Boolean) as string[]
+  const consensusMap = new Map<string, { epochId: number | null, decision: 'ACCEPTED' | 'REJECTED' | 'PENDING', repScore: number | null, ts: string }>()
+
+  for (const c of consensusData) {
+    if (!c.email_hash) continue
+    const payload = c.payload as EventPayload
+    consensusMap.set(c.email_hash, {
+      epochId: payload?.epoch_id ?? null,
+      decision: normalizeDecision(payload?.final_decision),
+      repScore: payload?.final_rep_score ?? null,
+      ts: c.ts
+    })
+  }
+
+  // Step 2: Get submissions for these email hashes
+  let submissionsQuery = supabase
+    .from('transparency_log')
+    .select('actor_hotkey,email_hash,payload,ts')
+    .eq('event_type', 'SUBMISSION')
+    .in('email_hash', emailHashes)
+
+  // Filter by miner if provided
+  if (filters.minerHotkey) {
+    submissionsQuery = submissionsQuery.eq('actor_hotkey', filters.minerHotkey)
+  }
+
+  const { data: submissionsData, error: submissionsError } = await submissionsQuery
+
+  if (submissionsError) {
+    console.error('[DB] Error fetching submissions:', submissionsError)
+    return { leads: [], total: 0, hasMore: false }
+  }
+
+  // Build submission map (email_hash -> submission)
+  const submissionMap = new Map<string, { minerHotkey: string, leadId: string | null, ts: string }>()
+  for (const s of submissionsData || []) {
+    if (!s.email_hash || !s.actor_hotkey) continue
+    const payload = s.payload as EventPayload
+    // Only keep if not already present or if this is newer
+    if (!submissionMap.has(s.email_hash)) {
+      submissionMap.set(s.email_hash, {
+        minerHotkey: s.actor_hotkey,
+        leadId: payload?.lead_id ?? null,
+        ts: s.ts
+      })
+    }
+  }
+
+  // Step 3: Merge results
+  const leads: LeadSearchResult[] = []
+  for (const emailHash of emailHashes) {
+    const consensus = consensusMap.get(emailHash)
+    const submission = submissionMap.get(emailHash)
+
+    if (!consensus) continue
+
+    // If filtering by miner and no matching submission, skip
+    if (filters.minerHotkey && !submission) continue
+
+    leads.push({
+      emailHash,
+      minerHotkey: submission?.minerHotkey ?? '',
+      leadId: submission?.leadId ?? null,
+      epochId: consensus.epochId,
+      decision: consensus.decision,
+      repScore: consensus.repScore,
+      timestamp: consensus.ts
+    })
+  }
+
+  console.log(`[DB] Found ${leads.length} leads matching filters`)
+
+  return {
+    leads,
+    total: leads.length,  // Approximate - would need separate count query for exact total
+    hasMore: consensusData.length === limit + 1
+  }
+}

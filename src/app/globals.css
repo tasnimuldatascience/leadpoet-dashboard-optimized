@@ -123,3 +123,25 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Remove focus outline from chart elements */
+.recharts-wrapper,
+.recharts-wrapper *,
+.recharts-surface,
+.recharts-layer,
+.recharts-bar-rectangle,
+.recharts-pie-sector,
+.recharts-cell,
+.recharts-legend-item,
+.recharts-tooltip-wrapper {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.recharts-wrapper:focus,
+.recharts-wrapper *:focus,
+.recharts-surface:focus,
+.recharts-layer:focus {
+  outline: none !important;
+  box-shadow: none !important;
+}

@@ -100,4 +100,10 @@ export const simpleCache = {
     cache.entries.clear()
     cache.refreshing.clear()
   },
+
+  delete(key: string, hours: number): void {
+    cache.entries.delete(`${key}_${hours}`)
+    cache.refreshing.delete(`${key}_${hours}`)
+    console.log(`[Cache] DELETED ${key} (hours=${hours})`)
+  },
 }
