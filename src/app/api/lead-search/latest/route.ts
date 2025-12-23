@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { fetchLatestLeads } from '@/lib/db-aggregation'
-import { fetchMetagraph } from '@/lib/metagraph'
+import { getCachedLatestLeads } from '@/lib/db-aggregation'
 import { cleanRejectionReason } from '@/lib/db-aggregation'
 
 export async function GET(request: NextRequest) {
@@ -9,13 +8,11 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams
     const limit = Math.min(parseInt(searchParams.get('limit') || '100', 10), 500)
 
-    console.log(`[Lead Search Latest API] Fetching latest ${limit} leads...`)
+    console.log(`[Lead Search Latest API] Getting latest ${limit} leads from cache...`)
 
-    // Fetch metagraph for hotkey->uid mapping
-    const metagraph = await fetchMetagraph()
-
-    // Use the existing fetchLatestLeads function
-    const latestLeads = await fetchLatestLeads(metagraph)
+    // Use cached latest leads (populated on server start and refreshed every 5 min)
+    // Note: Cached leads already have UIDs populated, no need to fetch metagraph again
+    const latestLeads = await getCachedLatestLeads(null)
 
     // Transform to match SearchResult format and limit
     const results = latestLeads.slice(0, limit).map(lead => ({

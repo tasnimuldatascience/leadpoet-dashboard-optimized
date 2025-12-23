@@ -383,6 +383,14 @@ export async function fetchAllDashboardData(hours: number, metagraph: MetagraphD
   // Cache the result
   simpleCache.set('dashboard', result, 0)
 
+  // Also populate latest leads cache on server start
+  fetchLatestLeads(metagraph).then(latestLeads => {
+    simpleCache.set('latestLeads', latestLeads, 0)
+    console.log(`[Cache] Latest leads cache initialized (${latestLeads.length} leads)`)
+  }).catch(err => {
+    console.error('[Cache] Failed to initialize latest leads cache:', err)
+  })
+
   const totalTime = Date.now() - startTime
   console.log(`[DB] All dashboard data calculated in ${totalTime}ms`)
 
@@ -408,6 +416,11 @@ async function refreshDataInBackground(metagraph: MetagraphData | null) {
     const result = { summary, minerStats, epochStats, leadInventory, rejectionReasons, incentiveData }
     simpleCache.set('dashboard', result, 0)
 
+    // Also refresh latest leads cache
+    const latestLeads = await fetchLatestLeads(metagraph)
+    simpleCache.set('latestLeads', latestLeads, 0)
+    console.log(`[Cache] Latest leads cache refreshed (${latestLeads.length} leads)`)
+
     const totalTime = Date.now() - startTime
     console.log(`[Cache] Background refresh completed in ${totalTime}ms`)
   } catch (err) {
@@ -415,6 +428,29 @@ async function refreshDataInBackground(metagraph: MetagraphData | null) {
   } finally {
     simpleCache.setRefreshing('dashboard', 0, false)
   }
+}
+
+// Get cached latest leads (for "All" filters - no DB query needed)
+export async function getCachedLatestLeads(metagraph: MetagraphData | null): Promise<LatestLead[]> {
+  // Check cache first
+  const cached = simpleCache.getStale<LatestLead[]>('latestLeads', 0)
+
+  if (cached && !cached.isStale) {
+    console.log('[Cache] HIT for latestLeads')
+    return cached.data
+  }
+
+  if (cached) {
+    console.log('[Cache] STALE HIT for latestLeads - returning cached data')
+    // Background refresh will update this with the dashboard refresh
+    return cached.data
+  }
+
+  // No cache - fetch fresh and cache it
+  console.log('[Cache] MISS for latestLeads - fetching fresh')
+  const leads = await fetchLatestLeads(metagraph)
+  simpleCache.set('latestLeads', leads, 0)
+  return leads
 }
 
 // Aggregation functions (work on already-fetched data)

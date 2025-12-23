@@ -464,10 +464,10 @@ export function SubmissionTracker({ minerStats, epochStats, onUidClick, onEpochC
   return (
     <div className="space-y-6">
       {/* Filters */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-[2fr_1fr_1fr_auto] gap-4">
         <div>
           <label className="text-sm text-muted-foreground mb-2 block">
-            Filter by UID
+            Filter by Miner (UID or Hotkey)
           </label>
           <Popover open={uidPopoverOpen} onOpenChange={setUidPopoverOpen}>
             <PopoverTrigger asChild>
@@ -477,15 +477,18 @@ export function SubmissionTracker({ minerStats, epochStats, onUidClick, onEpochC
                 aria-expanded={uidPopoverOpen}
                 className="w-full justify-between font-normal"
               >
-                {selectedUid === 'all' ? 'All UIDs' : `UID ${selectedUid}`}
+                {selectedUid === 'all' ? 'All Miners' : (() => {
+                  const miner = allUidOptions.find(m => m.uid.toString() === selectedUid)
+                  return miner ? `[${miner.uid}] ${miner.hotkey}` : `UID ${selectedUid}`
+                })()}
                 <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
               </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-[200px] p-0" align="start">
+            <PopoverContent className="w-[480px] p-0" align="start">
               <Command>
-                <CommandInput placeholder="Search UID..." />
+                <CommandInput placeholder="Search by UID or Hotkey..." />
                 <CommandList>
-                  <CommandEmpty>No UID found.</CommandEmpty>
+                  <CommandEmpty>No miner found.</CommandEmpty>
                   <CommandGroup>
                     <CommandItem
                       value="all"
@@ -500,12 +503,12 @@ export function SubmissionTracker({ minerStats, epochStats, onUidClick, onEpochC
                           selectedUid === 'all' ? "opacity-100" : "opacity-0"
                         )}
                       />
-                      All UIDs
+                      All Miners
                     </CommandItem>
                     {allUidOptions.map((opt) => (
                       <CommandItem
                         key={opt.uid}
-                        value={`uid-${opt.uid}`}
+                        value={`${opt.uid} ${opt.hotkey}`}
                         onSelect={() => {
                           setSelectedUid(opt.uid.toString())
                           setUidPopoverOpen(false)
@@ -513,11 +516,11 @@ export function SubmissionTracker({ minerStats, epochStats, onUidClick, onEpochC
                       >
                         <Check
                           className={cn(
-                            "mr-2 h-4 w-4",
+                            "mr-2 h-4 w-4 flex-shrink-0",
                             selectedUid === opt.uid.toString() ? "opacity-100" : "opacity-0"
                           )}
                         />
-                        UID {opt.uid}
+                        <span className="text-xs font-mono">[{opt.uid}] {opt.hotkey}</span>
                       </CommandItem>
                     ))}
                   </CommandGroup>
@@ -529,7 +532,7 @@ export function SubmissionTracker({ minerStats, epochStats, onUidClick, onEpochC
 
         <div>
           <label className="text-sm text-muted-foreground mb-2 block">
-            Filter by Epoch
+            Epoch
           </label>
           <Select
             value={selectedEpoch}
@@ -551,7 +554,7 @@ export function SubmissionTracker({ minerStats, epochStats, onUidClick, onEpochC
 
         <div>
           <label className="text-sm text-muted-foreground mb-2 block">
-            Search by Lead ID
+            Lead ID
           </label>
           <Input
             placeholder="Enter Lead ID..."

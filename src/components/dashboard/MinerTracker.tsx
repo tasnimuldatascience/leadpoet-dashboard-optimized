@@ -66,15 +66,24 @@ export function MinerTracker({
   }, [minerStats, selectedMiner, externalSelectedMiner])
 
   // Filter miners by search term (hotkey only - UID handled on Enter)
+  // Sort by UID ascending for dropdown display
   const filteredMiners = useMemo(() => {
-    if (!searchTerm) return activeMiners
-    const term = searchTerm.toLowerCase().trim()
-    return activeMiners.filter((hotkey) => {
-      // Check if hotkey matches
-      if (hotkey.toLowerCase().includes(term)) return true
-      return false
+    let miners = activeMiners
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase().trim()
+      miners = activeMiners.filter((hotkey) => {
+        // Check if hotkey matches
+        if (hotkey.toLowerCase().includes(term)) return true
+        return false
+      })
+    }
+    // Sort by UID ascending
+    return [...miners].sort((a, b) => {
+      const uidA = minerStats.find(s => s.minerHotkey === a)?.uid ?? Infinity
+      const uidB = minerStats.find(s => s.minerHotkey === b)?.uid ?? Infinity
+      return uidA - uidB
     })
-  }, [activeMiners, searchTerm])
+  }, [activeMiners, searchTerm, minerStats])
 
   // Handle search submission (Enter key)
   const handleSearchSubmit = () => {
