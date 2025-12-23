@@ -76,7 +76,7 @@ export function Sidebar({
         </div>
         {lastRefresh && (
           <div className="text-xs text-muted-foreground">
-            Last update: {lastRefresh.toLocaleTimeString()}
+            Last update: {lastRefresh.toLocaleTimeString()} EST
           </div>
         )}
       </div>

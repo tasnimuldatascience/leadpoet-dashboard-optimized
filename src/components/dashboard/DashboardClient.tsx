@@ -271,7 +271,7 @@ export function DashboardClient({ initialData, metagraph: initialMetagraph }: Da
           </div>
           <p className="text-xs sm:text-sm text-muted-foreground mt-1 ml-0 lg:ml-0">
             {lastRefresh && (
-              <span>Last updated at {lastRefresh.toLocaleDateString()} {lastRefresh.toLocaleTimeString()}</span>
+              <span>Last updated at {lastRefresh.toLocaleDateString()} {lastRefresh.toLocaleTimeString()} EST</span>
             )}
             {' '}| <strong>{metrics.total.toLocaleString()}</strong> total lead submissions
           </p>
