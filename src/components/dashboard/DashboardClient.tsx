@@ -215,7 +215,7 @@ export function DashboardClient({ initialData, metagraph: initialMetagraph }: Da
   return (
     <div className="min-h-screen bg-background">
       {/* Main Content */}
-      <div className="p-4 md:p-6 overflow-auto">
+      <div className="max-w-[1500px] mx-auto px-5 py-4 md:py-6 overflow-auto">
         {/* Header */}
         <div className="mb-4 md:mb-6">
           <div className="flex items-center gap-2 md:gap-3">

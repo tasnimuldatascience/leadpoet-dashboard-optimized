@@ -1,8 +1,10 @@
 // Database aggregation queries - fetch once, aggregate all stats
 // Filter by active miners (metagraph)
+// Results cached for 5 minutes for smooth user experience
 
 import { supabase } from './supabase'
 import type { MetagraphData } from './types'
+import { simpleCache } from './simple-cache'
 
 // Normalize decision values
 function normalizeDecision(decision: string | undefined): 'ACCEPTED' | 'REJECTED' | 'PENDING' {
@@ -343,7 +345,26 @@ export interface AllDashboardData {
 }
 
 export async function fetchAllDashboardData(hours: number, metagraph: MetagraphData | null): Promise<AllDashboardData> {
-  console.log(`[DB] Fetching all dashboard data...`)
+  // Check cache first (stale-while-revalidate pattern)
+  const staleResult = simpleCache.getStale<AllDashboardData>('dashboard', 0)
+
+  if (staleResult) {
+    if (!staleResult.isStale) {
+      // Fresh cached data - return immediately
+      console.log('[Cache] HIT for dashboard data')
+      return staleResult.data
+    }
+
+    // Data is stale - return it immediately but refresh in background
+    if (!simpleCache.isRefreshing('dashboard', 0)) {
+      console.log('[Cache] Returning stale data, refreshing in background...')
+      refreshDataInBackground(metagraph)
+    }
+    return staleResult.data
+  }
+
+  // No cached data - must fetch fresh
+  console.log(`[DB] Fetching all dashboard data (no cache)...`)
   const startTime = Date.now()
 
   // Single fetch of merged data (always all time, hours=0)
@@ -359,10 +380,41 @@ export async function fetchAllDashboardData(hours: number, metagraph: MetagraphD
 
   const result = { summary, minerStats, epochStats, leadInventory, rejectionReasons, incentiveData }
 
+  // Cache the result
+  simpleCache.set('dashboard', result, 0)
+
   const totalTime = Date.now() - startTime
   console.log(`[DB] All dashboard data calculated in ${totalTime}ms`)
 
   return result
+}
+
+// Refresh data in background without blocking the response
+async function refreshDataInBackground(metagraph: MetagraphData | null) {
+  simpleCache.setRefreshing('dashboard', 0, true)
+
+  try {
+    console.log('[Cache] Background refresh started...')
+    const startTime = Date.now()
+
+    const { leads, totalSubmissions, consensusData } = await fetchMergedLeads(0, metagraph)
+    const summary = calculateSummary(leads, totalSubmissions)
+    const minerStats = calculateMinerStats(leads)
+    const epochStats = calculateEpochStats(consensusData, leads)
+    const leadInventory = calculateLeadInventory(leads)
+    const rejectionReasons = calculateRejectionReasons(leads)
+    const incentiveData = calculateIncentiveData(leads)
+
+    const result = { summary, minerStats, epochStats, leadInventory, rejectionReasons, incentiveData }
+    simpleCache.set('dashboard', result, 0)
+
+    const totalTime = Date.now() - startTime
+    console.log(`[Cache] Background refresh completed in ${totalTime}ms`)
+  } catch (err) {
+    console.error('[Cache] Background refresh failed:', err)
+  } finally {
+    simpleCache.setRefreshing('dashboard', 0, false)
+  }
 }
 
 // Aggregation functions (work on already-fetched data)
