@@ -217,96 +217,6 @@ export interface MergedLeadsResult {
   consensusData: ConsensusData[]  // Raw consensus data for epoch stats
 }
 
-// Global stats (ALL miners, using DISTINCT lead_id)
-export interface GlobalStats {
-  totalSubmissions: number      // COUNT(DISTINCT lead_id) from SUBMISSION
-  totalAccepted: number         // COUNT(DISTINCT lead_id) from CONSENSUS_RESULT where accepted
-  totalRejected: number         // COUNT(DISTINCT lead_id) from CONSENSUS_RESULT where rejected
-  acceptedLeadsByDate: Map<string, number>  // For lead inventory
-}
-
-// Fetch global stats from ALL miners (not filtered by metagraph)
-// Uses DISTINCT lead_id as per user's SQL queries
-export async function fetchGlobalStats(): Promise<GlobalStats> {
-  console.log('[DB] Fetching global stats (all miners, DISTINCT lead_id)...')
-  const startTime = Date.now()
-  const batchSize = 1000
-
-  // Track unique lead_ids from SUBMISSION events
-  const submissionLeadIds = new Set<string>()
-  let offset = 0
-
-  while (true) {
-    const { data, error } = await supabase
-      .from('transparency_log')
-      .select('payload')
-      .eq('event_type', 'SUBMISSION')
-      .range(offset, offset + batchSize - 1)
-
-    if (error) { console.error('[DB] Error fetching submissions for global stats:', error); break }
-    if (!data || data.length === 0) break
-
-    for (const row of data) {
-      const payload = row.payload as { lead_id?: string } | null
-      const leadId = payload?.lead_id
-      if (leadId) submissionLeadIds.add(leadId)
-    }
-
-    if (data.length < batchSize) break
-    offset += batchSize
-  }
-
-  console.log(`[DB] Global submissions: ${submissionLeadIds.size} unique lead_ids`)
-
-  // Track unique lead_ids from CONSENSUS_RESULT events (grouped by decision)
-  const acceptedLeadIds = new Set<string>()
-  const rejectedLeadIds = new Set<string>()
-  const acceptedLeadsByDate = new Map<string, number>()
-  offset = 0
-
-  while (true) {
-    const { data, error } = await supabase
-      .from('transparency_log')
-      .select('ts, payload')
-      .eq('event_type', 'CONSENSUS_RESULT')
-      .range(offset, offset + batchSize - 1)
-
-    if (error) { console.error('[DB] Error fetching consensus for global stats:', error); break }
-    if (!data || data.length === 0) break
-
-    for (const row of data) {
-      const payload = row.payload as { lead_id?: string; final_decision?: string } | null
-      const leadId = payload?.lead_id
-      if (!leadId) continue
-
-      const decision = normalizeDecision(payload?.final_decision)
-      if (decision === 'ACCEPTED') {
-        if (!acceptedLeadIds.has(leadId)) {
-          acceptedLeadIds.add(leadId)
-          // Track by date for lead inventory
-          const date = row.ts.split('T')[0]
-          acceptedLeadsByDate.set(date, (acceptedLeadsByDate.get(date) || 0) + 1)
-        }
-      } else if (decision === 'REJECTED') {
-        rejectedLeadIds.add(leadId)
-      }
-    }
-
-    if (data.length < batchSize) break
-    offset += batchSize
-  }
-
-  const fetchTime = Date.now() - startTime
-  console.log(`[DB] Global stats fetched in ${fetchTime}ms: submissions=${submissionLeadIds.size}, accepted=${acceptedLeadIds.size}, rejected=${rejectedLeadIds.size}`)
-
-  return {
-    totalSubmissions: submissionLeadIds.size,
-    totalAccepted: acceptedLeadIds.size,
-    totalRejected: rejectedLeadIds.size,
-    acceptedLeadsByDate,
-  }
-}
-
 // Fetch and merge submissions with consensus - SINGLE fetch, used by all aggregations
 export async function fetchMergedLeads(hours: number, metagraph: MetagraphData | null): Promise<MergedLeadsResult> {
   console.log(`[DB] Fetching merged leads (hours=${hours})...`)
@@ -457,21 +367,14 @@ export async function fetchAllDashboardData(hours: number, metagraph: MetagraphD
   console.log(`[DB] Fetching all dashboard data (no cache)...`)
   const startTime = Date.now()
 
-  // Fetch global stats (ALL miners, DISTINCT lead_id) and merged leads in parallel
-  const [globalStats, mergedResult] = await Promise.all([
-    fetchGlobalStats(),
-    fetchMergedLeads(0, metagraph),
-  ])
-
-  const { leads, consensusData } = mergedResult
+  // Single fetch of merged data (always all time, hours=0)
+  const { leads, totalSubmissions, consensusData } = await fetchMergedLeads(0, metagraph)
 
   // Calculate all aggregations from the same data
-  // Summary uses global stats for total counts (all miners)
-  const summary = calculateSummary(leads, globalStats)
+  const summary = calculateSummary(leads, totalSubmissions)
   const minerStats = calculateMinerStats(leads)
   const epochStats = calculateEpochStats(consensusData, leads)
-  // Lead inventory uses global accepted leads (all miners)
-  const leadInventory = calculateLeadInventory(globalStats)
+  const leadInventory = calculateLeadInventory(leads)
   const rejectionReasons = calculateRejectionReasons(leads)
   const incentiveData = calculateIncentiveData(leads)
 
@@ -502,17 +405,11 @@ async function refreshDataInBackground(metagraph: MetagraphData | null) {
     console.log('[Cache] Background refresh started...')
     const startTime = Date.now()
 
-    // Fetch global stats and merged leads in parallel
-    const [globalStats, mergedResult] = await Promise.all([
-      fetchGlobalStats(),
-      fetchMergedLeads(0, metagraph),
-    ])
-
-    const { leads, consensusData } = mergedResult
-    const summary = calculateSummary(leads, globalStats)
+    const { leads, totalSubmissions, consensusData } = await fetchMergedLeads(0, metagraph)
+    const summary = calculateSummary(leads, totalSubmissions)
     const minerStats = calculateMinerStats(leads)
     const epochStats = calculateEpochStats(consensusData, leads)
-    const leadInventory = calculateLeadInventory(globalStats)
+    const leadInventory = calculateLeadInventory(leads)
     const rejectionReasons = calculateRejectionReasons(leads)
     const incentiveData = calculateIncentiveData(leads)
 
@@ -557,20 +454,18 @@ export async function getCachedLatestLeads(metagraph: MetagraphData | null): Pro
 }
 
 // Aggregation functions (work on already-fetched data)
-function calculateSummary(leads: MergedLead[], globalStats: GlobalStats): DashboardSummary {
-  // Use global stats for total counts (ALL miners, DISTINCT lead_id)
-  const total = globalStats.totalSubmissions
-  const accepted = globalStats.totalAccepted
-  const rejected = globalStats.totalRejected
-  const pending = total - accepted - rejected  // Submissions without consensus
+function calculateSummary(leads: MergedLead[], totalSubmissions: number): DashboardSummary {
+  const accepted = leads.filter(l => l.decision === 'ACCEPTED').length
+  const rejected = leads.filter(l => l.decision === 'REJECTED').length
+  const pending = leads.filter(l => l.decision === 'PENDING').length
+  const total = totalSubmissions  // Use original submission count, not deduplicated leads
   const decided = accepted + rejected
 
-  // Calculate avg rep score from active miner leads (for display purposes)
+  // Only calculate avg rep score for ACCEPTED leads
   const acceptedLeads = leads.filter(l => l.decision === 'ACCEPTED')
   const repScores = acceptedLeads.filter(l => l.repScore != null).map(l => l.repScore!)
   const avgRepScore = repScores.length > 0 ? repScores.reduce((a, b) => a + b, 0) / repScores.length : 0
 
-  // Unique miners and epochs from active miner data
   const miners = new Set(leads.map(l => l.minerHotkey))
   const epochs = new Set(leads.filter(l => l.epochId != null).map(l => l.epochId!))
 
@@ -762,9 +657,14 @@ function calculateEpochStats(consensusData: ConsensusData[], leads?: MergedLead[
   }).sort((a, b) => b.epoch_id - a.epoch_id)
 }
 
-function calculateLeadInventory(globalStats: GlobalStats): DailyLeadInventory[] {
-  // Use global accepted leads by date (ALL miners, DISTINCT lead_id)
-  const dateMap = globalStats.acceptedLeadsByDate
+function calculateLeadInventory(leads: MergedLead[]): DailyLeadInventory[] {
+  const acceptedLeads = leads.filter(l => l.decision === 'ACCEPTED')
+  const dateMap = new Map<string, number>()
+
+  for (const lead of acceptedLeads) {
+    const date = lead.timestamp.split('T')[0]
+    dateMap.set(date, (dateMap.get(date) || 0) + 1)
+  }
 
   const dates = Array.from(dateMap.keys()).sort()
   let cumulative = 0
