@@ -61,7 +61,7 @@ export function DecisionPieChart({ accepted, rejected, pending }: DecisionPieCha
           }}
           itemStyle={{ color: '#f1f5f9' }}
           labelStyle={{ color: '#94a3b8' }}
-          formatter={(value) => [(value ?? 0).toLocaleString(), 'Count']}
+          formatter={(value, name) => [(value ?? 0).toLocaleString(), `${name}:`]}
         />
         <Legend
           verticalAlign="bottom"

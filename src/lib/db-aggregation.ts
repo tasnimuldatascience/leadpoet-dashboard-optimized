@@ -201,10 +201,20 @@ export interface LeadJourneyEntry {
   leadId: string | null
 }
 
+// Consensus data for direct epoch stats calculation
+export interface ConsensusData {
+  email_hash: string
+  decision: string
+  epoch_id?: number
+  rep_score?: number
+  rejection_reason?: string
+}
+
 // Result type including original submission count
 export interface MergedLeadsResult {
   leads: MergedLead[]
   totalSubmissions: number  // Count before email_hash deduplication
+  consensusData: ConsensusData[]  // Raw consensus data for epoch stats
 }
 
 // Fetch and merge submissions with consensus - SINGLE fetch, used by all aggregations
@@ -252,6 +262,7 @@ export async function fetchMergedLeads(hours: number, metagraph: MetagraphData |
 
   // Fetch consensus results
   const consensusMap = new Map<string, { decision: string; epoch_id?: number; rep_score?: number; rejection_reason?: string }>()
+  const allConsensusData: ConsensusData[] = []  // Store all consensus data for epoch stats
   offset = 0
 
   while (true) {
@@ -268,21 +279,33 @@ export async function fetchMergedLeads(hours: number, metagraph: MetagraphData |
     if (!data || data.length === 0) break
 
     for (const row of data) {
-      if (!row.email_hash || consensusMap.has(row.email_hash)) continue
       const p = row.payload as { final_decision?: string; epoch_id?: number; final_rep_score?: number; primary_rejection_reason?: string }
-      consensusMap.set(row.email_hash, {
+
+      // Store all consensus data for epoch stats (one entry per consensus result)
+      allConsensusData.push({
+        email_hash: row.email_hash,
         decision: p?.final_decision || '',
         epoch_id: p?.epoch_id,
         rep_score: p?.final_rep_score,
         rejection_reason: p?.primary_rejection_reason,
       })
+
+      // Also build map for merging (deduplicated by email_hash)
+      if (!consensusMap.has(row.email_hash)) {
+        consensusMap.set(row.email_hash, {
+          decision: p?.final_decision || '',
+          epoch_id: p?.epoch_id,
+          rep_score: p?.final_rep_score,
+          rejection_reason: p?.primary_rejection_reason,
+        })
+      }
     }
 
     if (data.length < batchSize) break
     offset += batchSize
   }
 
-  console.log(`[DB] Fetched ${consensusMap.size} unique consensus results`)
+  console.log(`[DB] Fetched ${allConsensusData.length} consensus results (${consensusMap.size} unique)`)
 
   // Merge: Use submissions as primary, join with consensus
   const seenEmailHashes = new Set<string>()
@@ -308,7 +331,7 @@ export async function fetchMergedLeads(hours: number, metagraph: MetagraphData |
   const fetchTime = Date.now() - startTime
   console.log(`[DB] Merged ${merged.length} leads from ${filteredSubmissions.length} submissions in ${fetchTime}ms`)
 
-  return { leads: merged, totalSubmissions: filteredSubmissions.length }
+  return { leads: merged, totalSubmissions: filteredSubmissions.length, consensusData: allConsensusData }
 }
 
 // Main function: Fetch all dashboard data in ONE call
@@ -350,12 +373,12 @@ export async function fetchAllDashboardData(hours: number, metagraph: MetagraphD
   const startTime = Date.now()
 
   // Single fetch of merged data
-  const { leads, totalSubmissions } = await fetchMergedLeads(hours, metagraph)
+  const { leads, totalSubmissions, consensusData } = await fetchMergedLeads(hours, metagraph)
 
   // Calculate all aggregations from the same data
   const summary = calculateSummary(leads, totalSubmissions)
   const minerStats = calculateMinerStats(leads)
-  const epochStats = calculateEpochStats(leads)
+  const epochStats = calculateEpochStats(consensusData, leads)
   const leadInventory = calculateLeadInventory(leads)
   const rejectionReasons = calculateRejectionReasons(leads)
   const incentiveData = calculateIncentiveData(leads)
@@ -391,10 +414,10 @@ async function refreshDataInBackground(hours: number, metagraph: MetagraphData |
     console.log(`[Cache] Background refresh started for hours=${hours}...`)
     const startTime = Date.now()
 
-    const { leads, totalSubmissions } = await fetchMergedLeads(hours, metagraph)
+    const { leads, totalSubmissions, consensusData } = await fetchMergedLeads(hours, metagraph)
     const summary = calculateSummary(leads, totalSubmissions)
     const minerStats = calculateMinerStats(leads)
-    const epochStats = calculateEpochStats(leads)
+    const epochStats = calculateEpochStats(consensusData, leads)
     const leadInventory = calculateLeadInventory(leads)
     const rejectionReasons = calculateRejectionReasons(leads)
     const incentiveData = calculateIncentiveData(leads)
@@ -428,10 +451,10 @@ async function warmCacheInBackground(metagraph: MetagraphData | null) {
 
     try {
       console.log(`[Cache] Warming cache for hours=${hours}...`)
-      const { leads, totalSubmissions } = await fetchMergedLeads(hours, metagraph)
+      const { leads, totalSubmissions, consensusData } = await fetchMergedLeads(hours, metagraph)
       const summary = calculateSummary(leads, totalSubmissions)
       const minerStats = calculateMinerStats(leads)
-      const epochStats = calculateEpochStats(leads)
+      const epochStats = calculateEpochStats(consensusData, leads)
       const leadInventory = calculateLeadInventory(leads)
       const rejectionReasons = calculateRejectionReasons(leads)
       const incentiveData = calculateIncentiveData(leads)
@@ -585,26 +608,46 @@ function calculateMinerStats(leads: MergedLead[]): MinerStats[] {
   }).sort((a, b) => b.acceptance_rate - a.acceptance_rate)
 }
 
-function calculateEpochStats(leads: MergedLead[]): EpochStats[] {
-  const epochMap = new Map<number, MergedLead[]>()
+function calculateEpochStats(consensusData: ConsensusData[], leads?: MergedLead[]): EpochStats[] {
+  // Group consensus data by epoch_id for accurate epoch totals
+  const epochMap = new Map<number, ConsensusData[]>()
 
-  for (const lead of leads) {
-    if (lead.epochId == null) continue
-    if (!epochMap.has(lead.epochId)) epochMap.set(lead.epochId, [])
-    epochMap.get(lead.epochId)!.push(lead)
+  for (const cons of consensusData) {
+    if (cons.epoch_id == null) continue
+    if (!epochMap.has(cons.epoch_id)) epochMap.set(cons.epoch_id, [])
+    epochMap.get(cons.epoch_id)!.push(cons)
   }
 
-  return Array.from(epochMap.entries()).map(([epochId, epochLeads]) => {
-    const accepted = epochLeads.filter(l => l.decision === 'ACCEPTED').length
-    const rejected = epochLeads.filter(l => l.decision === 'REJECTED').length
+  // Group leads by epoch for per-miner breakdown (only for active miners)
+  const leadsByEpoch = new Map<number, MergedLead[]>()
+  if (leads) {
+    for (const lead of leads) {
+      if (lead.epochId == null) continue
+      if (!leadsByEpoch.has(lead.epochId)) leadsByEpoch.set(lead.epochId, [])
+      leadsByEpoch.get(lead.epochId)!.push(lead)
+    }
+  }
+
+  return Array.from(epochMap.entries()).map(([epochId, epochConsensus]) => {
+    // Count directly from consensus results (accurate total)
+    let accepted = 0
+    let rejected = 0
+
+    for (const cons of epochConsensus) {
+      const decision = normalizeDecision(cons.decision)
+      if (decision === 'ACCEPTED') accepted++
+      else if (decision === 'REJECTED') rejected++
+    }
+
     const decided = accepted + rejected
 
-    // Only calculate avg rep score for ACCEPTED leads
-    const acceptedEpochLeads = epochLeads.filter(l => l.decision === 'ACCEPTED')
-    const repScores = acceptedEpochLeads.filter(l => l.repScore != null).map(l => l.repScore!)
+    // Calculate avg rep score for ACCEPTED leads
+    const acceptedConsensus = epochConsensus.filter(c => normalizeDecision(c.decision) === 'ACCEPTED')
+    const repScores = acceptedConsensus.filter(c => c.rep_score != null).map(c => c.rep_score!)
     const avgRepScore = repScores.length > 0 ? repScores.reduce((a, b) => a + b, 0) / repScores.length : 0
 
-    // Calculate per-miner stats for this epoch
+    // Calculate per-miner stats from merged leads (only active miners)
+    const epochLeads = leadsByEpoch.get(epochId) || []
     const minerMap = new Map<string, MergedLead[]>()
     for (const lead of epochLeads) {
       if (!minerMap.has(lead.minerHotkey)) minerMap.set(lead.minerHotkey, [])
@@ -615,7 +658,6 @@ function calculateEpochStats(leads: MergedLead[]): EpochStats[] {
       const mAccepted = minerLeads.filter(l => l.decision === 'ACCEPTED').length
       const mRejected = minerLeads.filter(l => l.decision === 'REJECTED').length
       const mDecided = mAccepted + mRejected
-      // Only calculate avg rep score for ACCEPTED leads
       const mAcceptedLeads = minerLeads.filter(l => l.decision === 'ACCEPTED')
       const mRepScores = mAcceptedLeads.filter(l => l.repScore != null).map(l => l.repScore!)
       const mAvgRepScore = mRepScores.length > 0 ? mRepScores.reduce((a, b) => a + b, 0) / mRepScores.length : 0
@@ -632,7 +674,7 @@ function calculateEpochStats(leads: MergedLead[]): EpochStats[] {
 
     return {
       epoch_id: epochId,
-      total_leads: epochLeads.length,
+      total_leads: decided,  // Total consensus = accepted + rejected
       accepted,
       rejected,
       acceptance_rate: decided > 0 ? Math.round((accepted / decided) * 1000) / 10 : 0,
