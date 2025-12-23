@@ -8,7 +8,6 @@ import {
   MinerTracker,
   EpochAnalysis,
   SubmissionTracker,
-  Sidebar,
 } from '@/components/dashboard'
 import type {
   MetagraphData,
@@ -21,7 +20,6 @@ import {
   Layers,
   Search,
   RefreshCw,
-  Menu,
 } from 'lucide-react'
 
 const REFRESH_INTERVAL = 300 // 5 minutes in seconds
@@ -50,7 +48,6 @@ export function DashboardClient({ initialData, metagraph: initialMetagraph }: Da
   const [activeTab, setActiveTab] = useState('overview')
   const [selectedMinerHotkey, setSelectedMinerHotkey] = useState<string | null>(null)
   const [selectedEpochId, setSelectedEpochId] = useState<number | null>(null)
-  const [sidebarOpen, setSidebarOpen] = useState(false)
 
   // Handle navigation from SubmissionTracker to MinerTracker
   const handleUidClick = useCallback((uid: number) => {
@@ -216,29 +213,13 @@ export function DashboardClient({ initialData, metagraph: initialMetagraph }: Da
   }
 
   return (
-    <div className="flex min-h-screen bg-background">
-      {/* Sidebar */}
-      <Sidebar
-        lastRefresh={lastRefresh}
-        isLoading={isLoading}
-        isOpen={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
-      />
-
+    <div className="min-h-screen bg-background">
       {/* Main Content */}
-      <div className="flex-1 p-4 md:p-6 overflow-auto lg:ml-0">
+      <div className="p-4 md:p-6 overflow-auto">
         {/* Header */}
         <div className="mb-4 md:mb-6">
           <div className="flex items-center gap-2 md:gap-3">
-            {/* Mobile menu button */}
-            <button
-              onClick={() => setSidebarOpen(true)}
-              className="lg:hidden p-2 hover:bg-muted rounded-md -ml-2"
-              aria-label="Open menu"
-            >
-              <Menu className="h-5 w-5" />
-            </button>
-            <a href="https://leadpoet.com" target="_blank" rel="noopener noreferrer" className="hidden sm:block hover:opacity-80 transition-opacity">
+            <a href="https://leadpoet.com" target="_blank" rel="noopener noreferrer" className="hover:opacity-80 transition-opacity">
               <Image
                 src="/icon.png"
                 alt="LeadPoet Logo"
@@ -257,7 +238,7 @@ export function DashboardClient({ initialData, metagraph: initialMetagraph }: Da
               </Badge>
             )}
           </div>
-          <p className="text-xs sm:text-sm text-muted-foreground mt-1 ml-0 lg:ml-0">
+          <p className="text-xs sm:text-sm text-muted-foreground mt-1">
             {lastRefresh && (
               <span>Last updated at {lastRefresh.toLocaleDateString()} {lastRefresh.toLocaleTimeString()} EST</span>
             )}
