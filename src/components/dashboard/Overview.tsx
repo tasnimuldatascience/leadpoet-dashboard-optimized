@@ -189,7 +189,7 @@ export function Overview({
 
   // Download CSV function for miner leaderboard
   const downloadMinerCSV = () => {
-    const headers = ['UID', 'Hotkey', 'Total', 'Accepted', 'Rejected', 'Pending', 'Approval Rate%', 'Last 20 Epochs Acc', 'Last 20 Epochs Rej', 'Current Acc', 'Current Rej', 'Incentive%']
+    const headers = ['UID', 'Hotkey', 'Total', 'Accepted', 'Rejected', 'Pending', 'Approval Rate%', 'Last 20 Epochs Acc', 'Last 20 Epochs Rej', 'Current Epoch Acc', 'Current Epoch Rej', 'Incentive%']
     const rows = sortedLeaderboardData.map(m => [
       m.uid ?? '',
       m.minerHotkey,
@@ -537,8 +537,8 @@ export function Overview({
                     onClick={() => handleSort('currentAccepted')}
                   >
                     <div className="flex items-center justify-center whitespace-nowrap">
-                      <span className="hidden sm:inline">Current</span>
-                      <span className="sm:hidden">Cur</span>
+                      <span className="hidden sm:inline">Current Epoch</span>
+                      <span className="sm:hidden">Epoch</span>
                       <SortIcon columnKey="currentAccepted" />
                     </div>
                   </TableHead>
