@@ -242,7 +242,7 @@ export function DashboardClient({ initialData, metagraph: initialMetagraph }: Da
             {lastRefresh && (
               <span>Last updated at {lastRefresh.toLocaleDateString()} {lastRefresh.toLocaleTimeString()} EST</span>
             )}
-            {' '}| <strong>{metrics.total.toLocaleString()}</strong> total lead submissions
+            {' '}| <strong>{(dashboardData.totalSubmissionCount || metrics.total).toLocaleString()}</strong> total lead submissions
           </p>
         </div>
 
@@ -287,6 +287,7 @@ export function DashboardClient({ initialData, metagraph: initialMetagraph }: Da
               rejectionReasons={rejectionReasons}
               activeMinerCount={activeMinerCount}
               inventoryData={inventoryData}
+              leadInventoryCount={dashboardData.leadInventoryCount}
               onMinerClick={handleMinerClick}
             />
           </TabsContent>

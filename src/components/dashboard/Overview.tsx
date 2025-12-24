@@ -34,6 +34,7 @@ import type {
   MinerStats,
   RejectionReason,
   LeadInventoryData,
+  LeadInventoryCount,
 } from '@/lib/types'
 
 type SortKey = 'uid' | 'minerHotkey' | 'total' | 'accepted' | 'rejected' | 'pending' | 'acceptanceRate' | 'avgRepScore' | 'last20Accepted' | 'last20Rejected' | 'currentAccepted' | 'currentRejected' | 'btIncentive'
@@ -45,6 +46,7 @@ interface OverviewProps {
   rejectionReasons: RejectionReason[]
   activeMinerCount: number
   inventoryData: LeadInventoryData[]
+  leadInventoryCount?: LeadInventoryCount
   onMinerClick?: (minerHotkey: string) => void
 }
 
@@ -54,6 +56,7 @@ export function Overview({
   rejectionReasons,
   activeMinerCount,
   inventoryData,
+  leadInventoryCount,
   onMinerClick,
 }: OverviewProps) {
   const [sortKey, setSortKey] = useState<SortKey>('accepted')
@@ -77,15 +80,19 @@ export function Overview({
     fetchTaoPrice()
   }, [])
 
-  // Get current lead inventory (latest cumulative count)
+  // Get current lead inventory from unique lead_ids count (CONSENSUS_RESULT)
   const currentLeadInventory = useMemo(() => {
+    // Use the new leadInventoryCount if available (unique lead_ids from CONSENSUS_RESULT)
+    if (leadInventoryCount) {
+      return leadInventoryCount.accepted
+    }
+    // Fallback to old calculation from inventoryData
     if (inventoryData.length === 0) return 0
-    // Sort by date descending and get the latest entry
     const sorted = [...inventoryData].sort((a, b) =>
       new Date(b.date).getTime() - new Date(a.date).getTime()
     )
     return sorted[0]?.totalValidInventory ?? 0
-  }, [inventoryData])
+  }, [leadInventoryCount, inventoryData])
 
   // Leaderboard data uses pre-calculated epoch stats from minerStats
   const leaderboardData = minerStats

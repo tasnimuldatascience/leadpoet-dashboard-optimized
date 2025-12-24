@@ -83,6 +83,12 @@ export interface LeadInventoryData {
   newValidLeads: number
 }
 
+export interface LeadInventoryCount {
+  accepted: number
+  rejected: number
+  pending: number
+}
+
 export interface MetagraphData {
   hotkeyToUid: Record<string, number>
   uidToHotkey: Record<number, string>

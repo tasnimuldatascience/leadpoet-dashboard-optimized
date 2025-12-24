@@ -210,11 +210,20 @@ export interface ConsensusData {
   rejection_reason?: string
 }
 
+// Raw consensus with timestamps for inventory calculations
+export interface RawConsensusEntry {
+  ts: string
+  lead_id?: string
+  decision: string
+}
+
 // Result type including original submission count
 export interface MergedLeadsResult {
   leads: MergedLead[]
   totalSubmissions: number  // Count before email_hash deduplication
   consensusData: ConsensusData[]  // Raw consensus data for epoch stats
+  rawConsensusWithTimestamps: RawConsensusEntry[]  // For inventory calculations (not filtered)
+  totalAllSubmissions: number  // Total submissions count (not filtered by active miners)
 }
 
 // Fetch and merge submissions with consensus - SINGLE fetch, used by all aggregations
@@ -260,15 +269,16 @@ export async function fetchMergedLeads(hours: number, metagraph: MetagraphData |
 
   console.log(`[DB] Filtered to ${filteredSubmissions.length} submissions from active miners`)
 
-  // Fetch consensus results
+  // Fetch consensus results (include ts for inventory calculations)
   const consensusMap = new Map<string, { decision: string; epoch_id?: number; rep_score?: number; rejection_reason?: string }>()
   const allConsensusData: ConsensusData[] = []  // Store all consensus data for epoch stats
+  const rawConsensusWithTimestamps: RawConsensusEntry[] = []  // For inventory calculations
   offset = 0
 
   while (true) {
     let query = supabase
       .from('transparency_log')
-      .select('email_hash,payload')
+      .select('ts,email_hash,payload')
       .eq('event_type', 'CONSENSUS_RESULT')
       .not('email_hash', 'is', null)
 
@@ -279,7 +289,14 @@ export async function fetchMergedLeads(hours: number, metagraph: MetagraphData |
     if (!data || data.length === 0) break
 
     for (const row of data) {
-      const p = row.payload as { final_decision?: string; epoch_id?: number; final_rep_score?: number; primary_rejection_reason?: string }
+      const p = row.payload as { lead_id?: string; final_decision?: string; epoch_id?: number; final_rep_score?: number; primary_rejection_reason?: string }
+
+      // Store raw consensus with timestamps for inventory (not filtered)
+      rawConsensusWithTimestamps.push({
+        ts: row.ts,
+        lead_id: p?.lead_id,
+        decision: p?.final_decision || '',
+      })
 
       // Store all consensus data for epoch stats (one entry per consensus result)
       allConsensusData.push({
@@ -331,7 +348,13 @@ export async function fetchMergedLeads(hours: number, metagraph: MetagraphData |
   const fetchTime = Date.now() - startTime
   console.log(`[DB] Merged ${merged.length} leads from ${filteredSubmissions.length} submissions in ${fetchTime}ms`)
 
-  return { leads: merged, totalSubmissions: filteredSubmissions.length, consensusData: allConsensusData }
+  return {
+    leads: merged,
+    totalSubmissions: filteredSubmissions.length,
+    consensusData: allConsensusData,
+    rawConsensusWithTimestamps,
+    totalAllSubmissions: allSubmissions.length,  // Total before filtering
+  }
 }
 
 // Main function: Fetch all dashboard data in ONE call
@@ -342,6 +365,8 @@ export interface AllDashboardData {
   leadInventory: DailyLeadInventory[]
   rejectionReasons: RejectionReasonAggregated[]
   incentiveData: IncentiveDataAggregated[]
+  leadInventoryCount: LeadInventoryCount
+  totalSubmissionCount: number  // All submissions (not filtered by active miners)
 }
 
 export async function fetchAllDashboardData(hours: number, metagraph: MetagraphData | null): Promise<AllDashboardData> {
@@ -368,17 +393,26 @@ export async function fetchAllDashboardData(hours: number, metagraph: MetagraphD
   const startTime = Date.now()
 
   // Single fetch of merged data (always all time, hours=0)
-  const { leads, totalSubmissions, consensusData } = await fetchMergedLeads(0, metagraph)
+  const { leads, totalSubmissions, consensusData, rawConsensusWithTimestamps, totalAllSubmissions } = await fetchMergedLeads(0, metagraph)
 
   // Calculate all aggregations from the same data
   const summary = calculateSummary(leads, totalSubmissions)
   const minerStats = calculateMinerStats(leads)
   const epochStats = calculateEpochStats(consensusData, leads)
-  const leadInventory = calculateLeadInventory(leads)
   const rejectionReasons = calculateRejectionReasons(leads)
   const incentiveData = calculateIncentiveData(leads)
 
-  const result = { summary, minerStats, epochStats, leadInventory, rejectionReasons, incentiveData }
+  // Calculate lead inventory from already-fetched consensus data (not filtered by active miners)
+  // Leads remain in inventory even after miner leaves
+  const leadInventory = calculateLeadInventoryFromConsensusData(consensusData, rawConsensusWithTimestamps)
+
+  // Calculate lead inventory count from already-fetched data
+  const leadInventoryCount = calculateLeadInventoryCountFromData(rawConsensusWithTimestamps)
+
+  // Use total submission count from already-fetched data
+  const totalSubmissionCount = totalAllSubmissions
+
+  const result = { summary, minerStats, epochStats, leadInventory, rejectionReasons, incentiveData, leadInventoryCount, totalSubmissionCount }
 
   // Cache the result
   simpleCache.set('dashboard', result, 0)
@@ -405,15 +439,17 @@ async function refreshDataInBackground(metagraph: MetagraphData | null) {
     console.log('[Cache] Background refresh started...')
     const startTime = Date.now()
 
-    const { leads, totalSubmissions, consensusData } = await fetchMergedLeads(0, metagraph)
+    const { leads, totalSubmissions, consensusData, rawConsensusWithTimestamps, totalAllSubmissions } = await fetchMergedLeads(0, metagraph)
     const summary = calculateSummary(leads, totalSubmissions)
     const minerStats = calculateMinerStats(leads)
     const epochStats = calculateEpochStats(consensusData, leads)
-    const leadInventory = calculateLeadInventory(leads)
     const rejectionReasons = calculateRejectionReasons(leads)
     const incentiveData = calculateIncentiveData(leads)
+    const leadInventory = calculateLeadInventoryFromConsensusData(consensusData, rawConsensusWithTimestamps)
+    const leadInventoryCount = calculateLeadInventoryCountFromData(rawConsensusWithTimestamps)
+    const totalSubmissionCount = totalAllSubmissions
 
-    const result = { summary, minerStats, epochStats, leadInventory, rejectionReasons, incentiveData }
+    const result = { summary, minerStats, epochStats, leadInventory, rejectionReasons, incentiveData, leadInventoryCount, totalSubmissionCount }
     simpleCache.set('dashboard', result, 0)
 
     // Also refresh latest leads cache
@@ -657,23 +693,95 @@ function calculateEpochStats(consensusData: ConsensusData[], leads?: MergedLead[
   }).sort((a, b) => b.epoch_id - a.epoch_id)
 }
 
-function calculateLeadInventory(leads: MergedLead[]): DailyLeadInventory[] {
-  const acceptedLeads = leads.filter(l => l.decision === 'ACCEPTED')
-  const dateMap = new Map<string, number>()
+// Calculate lead inventory from consensus data (reuses already-fetched data)
+// Not filtered by active miners - leads remain in inventory even after miner leaves
+function calculateLeadInventoryFromConsensusData(
+  consensusData: ConsensusData[],
+  rawConsensusWithTimestamps: Array<{ ts: string; lead_id?: string; decision: string }>
+): DailyLeadInventory[] {
+  console.log('[DB] Calculating lead inventory from consensus data...')
+  const startTime = Date.now()
 
-  for (const lead of acceptedLeads) {
-    const date = lead.timestamp.split('T')[0]
+  // Track unique lead_ids and their earliest accepted timestamp
+  const acceptedLeadDates = new Map<string, string>() // lead_id -> date
+
+  for (const cons of rawConsensusWithTimestamps) {
+    const leadId = cons.lead_id
+    const decision = cons.decision?.toUpperCase()
+
+    if (!leadId) continue
+
+    // Only count accepted leads
+    if (decision === 'ALLOW' || decision === 'ALLOWED' || decision === 'ACCEPT' || decision === 'ACCEPTED' || decision === 'APPROVE' || decision === 'APPROVED') {
+      const date = cons.ts.split('T')[0]
+      // Use earliest date for this lead_id
+      if (!acceptedLeadDates.has(leadId) || date < acceptedLeadDates.get(leadId)!) {
+        acceptedLeadDates.set(leadId, date)
+      }
+    }
+  }
+
+  // Count unique leads by date
+  const dateMap = new Map<string, number>()
+  for (const date of acceptedLeadDates.values()) {
     dateMap.set(date, (dateMap.get(date) || 0) + 1)
   }
 
   const dates = Array.from(dateMap.keys()).sort()
   let cumulative = 0
 
-  return dates.map(date => {
+  const result = dates.map(date => {
     const newLeads = dateMap.get(date) || 0
     cumulative += newLeads
     return { date, new_leads: newLeads, cumulative_leads: cumulative }
   })
+
+  const calcTime = Date.now() - startTime
+  console.log(`[DB] Lead inventory calculated: ${acceptedLeadDates.size} unique accepted leads (${calcTime}ms)`)
+
+  return result
+}
+
+// Calculate lead inventory count from consensus data (reuses already-fetched data)
+function calculateLeadInventoryCountFromData(
+  rawConsensusWithTimestamps: Array<{ ts: string; lead_id?: string; decision: string }>
+): LeadInventoryCount {
+  console.log('[DB] Calculating lead inventory count from consensus data...')
+  const startTime = Date.now()
+
+  const leadIdsByDecision = new Map<string, Set<string>>()
+
+  for (const cons of rawConsensusWithTimestamps) {
+    const leadId = cons.lead_id
+    const decision = cons.decision?.toUpperCase()
+
+    if (!leadId) continue
+
+    let normalizedDecision: string
+    if (decision === 'ALLOW' || decision === 'ALLOWED' || decision === 'ACCEPT' || decision === 'ACCEPTED' || decision === 'APPROVE' || decision === 'APPROVED') {
+      normalizedDecision = 'accepted'
+    } else if (decision === 'DENY' || decision === 'DENIED' || decision === 'REJECT' || decision === 'REJECTED') {
+      normalizedDecision = 'rejected'
+    } else {
+      normalizedDecision = 'pending'
+    }
+
+    if (!leadIdsByDecision.has(normalizedDecision)) {
+      leadIdsByDecision.set(normalizedDecision, new Set())
+    }
+    leadIdsByDecision.get(normalizedDecision)!.add(leadId)
+  }
+
+  const result: LeadInventoryCount = {
+    accepted: leadIdsByDecision.get('accepted')?.size || 0,
+    rejected: leadIdsByDecision.get('rejected')?.size || 0,
+    pending: leadIdsByDecision.get('pending')?.size || 0,
+  }
+
+  const calcTime = Date.now() - startTime
+  console.log(`[DB] Inventory count: ${result.accepted} accepted, ${result.rejected} rejected, ${result.pending} pending (${calcTime}ms)`)
+
+  return result
 }
 
 // Rejection reasons to exclude from charts (internal/technical errors)
@@ -848,6 +956,97 @@ export async function fetchLeadJourneyData(metagraph: MetagraphData | null): Pro
   console.log(`[DB] Lead journey: ${entries.length} entries in ${fetchTime}ms`)
 
   return entries
+}
+
+// ============================================
+// Lead Inventory Count (unique lead_ids from CONSENSUS_RESULT)
+// ============================================
+
+export interface LeadInventoryCount {
+  accepted: number
+  rejected: number
+  pending: number
+}
+
+// Fetch total submission count (ALL submissions, not filtered by active miners)
+export async function fetchTotalSubmissionCount(): Promise<number> {
+  console.log('[DB] Fetching total submission count...')
+  const startTime = Date.now()
+
+  const { count, error } = await supabase
+    .from('transparency_log')
+    .select('*', { count: 'exact', head: true })
+    .eq('event_type', 'SUBMISSION')
+
+  if (error) {
+    console.error('[DB] Error fetching submission count:', error)
+    return 0
+  }
+
+  const fetchTime = Date.now() - startTime
+  console.log(`[DB] Total submissions: ${count} (${fetchTime}ms)`)
+
+  return count || 0
+}
+
+export async function fetchLeadInventoryCount(): Promise<LeadInventoryCount> {
+  console.log('[DB] Fetching lead inventory count (unique lead_ids)...')
+  const startTime = Date.now()
+
+  const result: LeadInventoryCount = { accepted: 0, rejected: 0, pending: 0 }
+  const leadIdsByDecision = new Map<string, Set<string>>()
+
+  let offset = 0
+  const batchSize = 1000
+
+  while (true) {
+    const { data, error } = await supabase
+      .from('transparency_log')
+      .select('payload')
+      .eq('event_type', 'CONSENSUS_RESULT')
+      .range(offset, offset + batchSize - 1)
+
+    if (error) {
+      console.error('[DB] Error fetching inventory count:', error)
+      break
+    }
+    if (!data || data.length === 0) break
+
+    for (const row of data) {
+      const payload = row.payload as { lead_id?: string; final_decision?: string } | null
+      const leadId = payload?.lead_id
+      const decision = payload?.final_decision?.toUpperCase()
+
+      if (!leadId) continue
+
+      // Normalize decision
+      let normalizedDecision: string
+      if (decision === 'ALLOW' || decision === 'ALLOWED' || decision === 'ACCEPT' || decision === 'ACCEPTED' || decision === 'APPROVE' || decision === 'APPROVED') {
+        normalizedDecision = 'accepted'
+      } else if (decision === 'DENY' || decision === 'DENIED' || decision === 'REJECT' || decision === 'REJECTED') {
+        normalizedDecision = 'rejected'
+      } else {
+        normalizedDecision = 'pending'
+      }
+
+      if (!leadIdsByDecision.has(normalizedDecision)) {
+        leadIdsByDecision.set(normalizedDecision, new Set())
+      }
+      leadIdsByDecision.get(normalizedDecision)!.add(leadId)
+    }
+
+    if (data.length < batchSize) break
+    offset += batchSize
+  }
+
+  result.accepted = leadIdsByDecision.get('accepted')?.size || 0
+  result.rejected = leadIdsByDecision.get('rejected')?.size || 0
+  result.pending = leadIdsByDecision.get('pending')?.size || 0
+
+  const fetchTime = Date.now() - startTime
+  console.log(`[DB] Inventory count: ${result.accepted} accepted, ${result.rejected} rejected, ${result.pending} pending (${fetchTime}ms)`)
+
+  return result
 }
 
 // ============================================
