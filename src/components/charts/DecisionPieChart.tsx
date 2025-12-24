@@ -41,13 +41,14 @@ export function DecisionPieChart({ accepted, rejected, pending }: DecisionPieCha
 
   // Custom label renderer - keeps full text but positions better on mobile
   const renderLabel = ({ name, percent, cx, cy, midAngle, outerRadius }: {
-    name: string
-    percent: number
-    cx: number
-    cy: number
-    midAngle: number
-    outerRadius: number
+    name?: string
+    percent?: number
+    cx?: number
+    cy?: number
+    midAngle?: number
+    outerRadius?: number
   }) => {
+    if (!name || cx === undefined || cy === undefined || midAngle === undefined || outerRadius === undefined) return null
     const RADIAN = Math.PI / 180
     const radius = outerRadius + (isMobile ? 25 : 35)
     const x = cx + radius * Math.cos(-midAngle * RADIAN)
