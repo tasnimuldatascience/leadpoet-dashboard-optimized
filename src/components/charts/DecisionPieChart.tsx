@@ -1,5 +1,6 @@
 'use client'
 
+import { useState, useEffect } from 'react'
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts'
 
 interface DecisionPieChartProps {
@@ -15,6 +16,15 @@ const COLORS = {
 }
 
 export function DecisionPieChart({ accepted, rejected, pending }: DecisionPieChartProps) {
+  const [isMobile, setIsMobile] = useState(false)
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 640)
+    checkMobile()
+    window.addEventListener('resize', checkMobile)
+    return () => window.removeEventListener('resize', checkMobile)
+  }, [])
+
   const data = [
     { name: 'Accepted', value: accepted },
     { name: 'Rejected', value: rejected },
@@ -29,19 +39,48 @@ export function DecisionPieChart({ accepted, rejected, pending }: DecisionPieCha
     )
   }
 
+  // Custom label renderer - keeps full text but positions better on mobile
+  const renderLabel = ({ name, percent, cx, cy, midAngle, outerRadius }: {
+    name: string
+    percent: number
+    cx: number
+    cy: number
+    midAngle: number
+    outerRadius: number
+  }) => {
+    const RADIAN = Math.PI / 180
+    const radius = outerRadius + (isMobile ? 25 : 35)
+    const x = cx + radius * Math.cos(-midAngle * RADIAN)
+    const y = cy + radius * Math.sin(-midAngle * RADIAN)
+    const color = COLORS[name.toUpperCase() as keyof typeof COLORS] || '#94a3b8'
+
+    return (
+      <text
+        x={x}
+        y={y}
+        fill={color}
+        textAnchor={x > cx ? 'start' : 'end'}
+        dominantBaseline="central"
+        fontSize={isMobile ? 10 : 12}
+      >
+        {`${name}: ${((percent ?? 0) * 100).toFixed(1)}%`}
+      </text>
+    )
+  }
+
   return (
-    <div className="h-[250px] md:h-[300px]">
+    <div className="h-[280px] md:h-[300px]">
       <ResponsiveContainer width="100%" height="100%">
-        <PieChart>
+        <PieChart margin={isMobile ? { top: 20, right: 20, bottom: 20, left: 20 } : undefined}>
           <Pie
             data={data}
             cx="50%"
-            cy="50%"
-            innerRadius={40}
-            outerRadius={70}
+            cy="45%"
+            innerRadius={isMobile ? 28 : 40}
+            outerRadius={isMobile ? 50 : 70}
             paddingAngle={2}
             dataKey="value"
-            label={({ name, percent }) => `${name}: ${((percent ?? 0) * 100).toFixed(1)}%`}
+            label={renderLabel}
             labelLine={false}
           >
           {data.map((entry) => (

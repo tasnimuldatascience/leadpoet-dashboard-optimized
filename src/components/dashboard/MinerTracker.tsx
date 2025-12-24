@@ -220,7 +220,7 @@ export function MinerTracker({
                 const uid = stats?.uid
                 return (
                   <SelectItem key={miner} value={miner}>
-                    {uid !== null && uid !== undefined ? `[${uid}] ` : ''}{miner.substring(0, 24)}...
+                    {uid !== null && uid !== undefined ? `[${uid}] ` : ''}{miner}
                   </SelectItem>
                 )
               })}

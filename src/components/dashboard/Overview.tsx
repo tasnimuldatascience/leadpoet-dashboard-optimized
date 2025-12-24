@@ -567,14 +567,14 @@ export function Overview({
                     <TableCell className="font-mono px-2 md:px-4">
                       {miner.uid ?? 'N/A'}
                     </TableCell>
-                    <TableCell className="font-mono text-xs px-2 md:px-4 max-w-[120px] md:max-w-[200px]">
+                    <TableCell className="font-mono text-xs px-2 md:px-4">
                       <div className="flex items-center gap-1">
                         <span
-                          className="text-blue-400 hover:text-blue-300 cursor-pointer hover:underline truncate"
+                          className="text-blue-400 hover:text-blue-300 cursor-pointer hover:underline break-all md:break-normal"
                           onClick={() => handleHotkeyClick(miner.minerHotkey)}
                           title={miner.minerHotkey}
                         >
-                          {miner.minerHotkey.substring(0, 16)}...
+                          {miner.minerHotkey}
                         </span>
                         <button
                           onClick={(e) => handleCopyHotkey(miner.minerHotkey, e)}

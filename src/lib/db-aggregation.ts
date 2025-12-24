@@ -942,7 +942,7 @@ export async function fetchLeadJourneyData(metagraph: MetagraphData | null): Pro
       emailHash: sub.email_hash,
       emailHashShort: sub.email_hash.substring(0, 16) + '...',
       minerHotkey: sub.actor_hotkey,
-      minerShort: sub.actor_hotkey.substring(0, 16) + '...',
+      minerShort: sub.actor_hotkey,
       timestamp: sub.ts,
       epochId: cons?.epoch_id ?? null,
       decision: cons ? normalizeDecision(cons.decision) : 'PENDING',

@@ -573,11 +573,11 @@ export function EpochAnalysis({ epochStats, metagraph, onMinerClick, externalSel
                         <TableCell className="font-mono text-xs max-w-[200px]">
                           <div className="flex items-center gap-2 group">
                             <span
-                              className="cursor-pointer hover:text-blue-400 truncate"
+                              className="cursor-pointer hover:text-blue-400 break-all md:break-normal"
                               onClick={() => onMinerClick?.(miner.minerHotkey)}
                               title={miner.minerHotkey}
                             >
-                              {miner.minerShort.substring(0, 16)}...
+                              {miner.minerHotkey}
                             </span>
                             <button
                               onClick={(e) => handleCopyMiner(miner.minerHotkey, e)}
