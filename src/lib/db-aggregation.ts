@@ -388,77 +388,93 @@ export async function fetchAllDashboardData(hours: number, metagraph: MetagraphD
     return staleResult.data
   }
 
-  // No cached data - must fetch fresh
-  console.log(`[DB] Fetching all dashboard data (no cache)...`)
-  const startTime = Date.now()
+  // No cached data - use queue to ensure only one fetch runs at a time
+  // This prevents memory exhaustion from concurrent fetches
+  return simpleCache.fetchWithQueue<AllDashboardData>('dashboard', 0, async () => {
+    // Double-check cache inside queue (another request might have just finished)
+    const freshCheck = simpleCache.get<AllDashboardData>('dashboard', 0)
+    if (freshCheck) {
+      console.log('[Cache] HIT after queue wait')
+      return freshCheck
+    }
 
-  // Single fetch of merged data (always all time, hours=0)
-  const { leads, totalSubmissions, consensusData, rawConsensusWithTimestamps, totalAllSubmissions } = await fetchMergedLeads(0, metagraph)
-
-  // Calculate all aggregations from the same data
-  const summary = calculateSummary(leads, totalSubmissions)
-  const minerStats = calculateMinerStats(leads)
-  const epochStats = calculateEpochStats(consensusData, leads)
-  const rejectionReasons = calculateRejectionReasons(leads)
-  const incentiveData = calculateIncentiveData(leads)
-
-  // Calculate lead inventory from already-fetched consensus data (not filtered by active miners)
-  // Leads remain in inventory even after miner leaves
-  const leadInventory = calculateLeadInventoryFromConsensusData(consensusData, rawConsensusWithTimestamps)
-
-  // Calculate lead inventory count from already-fetched data
-  const leadInventoryCount = calculateLeadInventoryCountFromData(rawConsensusWithTimestamps)
-
-  // Use total submission count from already-fetched data
-  const totalSubmissionCount = totalAllSubmissions
-
-  const result = { summary, minerStats, epochStats, leadInventory, rejectionReasons, incentiveData, leadInventoryCount, totalSubmissionCount }
-
-  // Cache the result
-  simpleCache.set('dashboard', result, 0)
-
-  // Also populate latest leads cache on server start
-  fetchLatestLeads(metagraph).then(latestLeads => {
-    simpleCache.set('latestLeads', latestLeads, 0)
-    console.log(`[Cache] Latest leads cache initialized (${latestLeads.length} leads)`)
-  }).catch(err => {
-    console.error('[Cache] Failed to initialize latest leads cache:', err)
-  })
-
-  const totalTime = Date.now() - startTime
-  console.log(`[DB] All dashboard data calculated in ${totalTime}ms`)
-
-  return result
-}
-
-// Refresh data in background without blocking the response
-async function refreshDataInBackground(metagraph: MetagraphData | null) {
-  simpleCache.setRefreshing('dashboard', 0, true)
-
-  try {
-    console.log('[Cache] Background refresh started...')
+    console.log(`[DB] Fetching all dashboard data (no cache)...`)
     const startTime = Date.now()
 
+    // Single fetch of merged data (always all time, hours=0)
     const { leads, totalSubmissions, consensusData, rawConsensusWithTimestamps, totalAllSubmissions } = await fetchMergedLeads(0, metagraph)
+
+    // Calculate all aggregations from the same data
     const summary = calculateSummary(leads, totalSubmissions)
     const minerStats = calculateMinerStats(leads)
     const epochStats = calculateEpochStats(consensusData, leads)
     const rejectionReasons = calculateRejectionReasons(leads)
     const incentiveData = calculateIncentiveData(leads)
+
+    // Calculate lead inventory from already-fetched consensus data (not filtered by active miners)
+    // Leads remain in inventory even after miner leaves
     const leadInventory = calculateLeadInventoryFromConsensusData(consensusData, rawConsensusWithTimestamps)
+
+    // Calculate lead inventory count from already-fetched data
     const leadInventoryCount = calculateLeadInventoryCountFromData(rawConsensusWithTimestamps)
+
+    // Use total submission count from already-fetched data
     const totalSubmissionCount = totalAllSubmissions
 
     const result = { summary, minerStats, epochStats, leadInventory, rejectionReasons, incentiveData, leadInventoryCount, totalSubmissionCount }
+
+    // Cache the result
     simpleCache.set('dashboard', result, 0)
 
-    // Also refresh latest leads cache
-    const latestLeads = await fetchLatestLeads(metagraph)
-    simpleCache.set('latestLeads', latestLeads, 0)
-    console.log(`[Cache] Latest leads cache refreshed (${latestLeads.length} leads)`)
+    // Also populate latest leads cache on server start
+    fetchLatestLeads(metagraph).then(latestLeads => {
+      simpleCache.set('latestLeads', latestLeads, 0)
+      console.log(`[Cache] Latest leads cache initialized (${latestLeads.length} leads)`)
+    }).catch(err => {
+      console.error('[Cache] Failed to initialize latest leads cache:', err)
+    })
 
     const totalTime = Date.now() - startTime
-    console.log(`[Cache] Background refresh completed in ${totalTime}ms`)
+    console.log(`[DB] All dashboard data calculated in ${totalTime}ms`)
+
+    return result
+  })
+}
+
+// Refresh data in background without blocking the response
+// Uses queue to prevent concurrent background refreshes from exhausting memory
+async function refreshDataInBackground(metagraph: MetagraphData | null) {
+  simpleCache.setRefreshing('dashboard', 0, true)
+
+  try {
+    // Use queue to ensure only one fetch runs at a time (even for background refreshes)
+    await simpleCache.fetchWithQueue('dashboard_refresh', 0, async () => {
+      console.log('[Cache] Background refresh started...')
+      const startTime = Date.now()
+
+      const { leads, totalSubmissions, consensusData, rawConsensusWithTimestamps, totalAllSubmissions } = await fetchMergedLeads(0, metagraph)
+      const summary = calculateSummary(leads, totalSubmissions)
+      const minerStats = calculateMinerStats(leads)
+      const epochStats = calculateEpochStats(consensusData, leads)
+      const rejectionReasons = calculateRejectionReasons(leads)
+      const incentiveData = calculateIncentiveData(leads)
+      const leadInventory = calculateLeadInventoryFromConsensusData(consensusData, rawConsensusWithTimestamps)
+      const leadInventoryCount = calculateLeadInventoryCountFromData(rawConsensusWithTimestamps)
+      const totalSubmissionCount = totalAllSubmissions
+
+      const result = { summary, minerStats, epochStats, leadInventory, rejectionReasons, incentiveData, leadInventoryCount, totalSubmissionCount }
+      simpleCache.set('dashboard', result, 0)
+
+      // Also refresh latest leads cache
+      const latestLeads = await fetchLatestLeads(metagraph)
+      simpleCache.set('latestLeads', latestLeads, 0)
+      console.log(`[Cache] Latest leads cache refreshed (${latestLeads.length} leads)`)
+
+      const totalTime = Date.now() - startTime
+      console.log(`[Cache] Background refresh completed in ${totalTime}ms`)
+
+      return result
+    })
   } catch (err) {
     console.error('[Cache] Background refresh failed:', err)
   } finally {

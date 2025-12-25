@@ -1,6 +1,7 @@
 // Simple in-memory cache with stale-while-revalidate
 // Returns stale data immediately while refreshing in background
 // Uses global to persist across Next.js module reloads
+// Includes request queuing to prevent concurrent fetches (memory optimization)
 
 interface CacheEntry<T> {
   data: T
@@ -11,6 +12,7 @@ interface CacheEntry<T> {
 interface GlobalCache {
   entries: Map<string, CacheEntry<unknown>>
   refreshing: Set<string> // Track which entries are being refreshed
+  pendingFetches: Map<string, Promise<unknown>> // Queue concurrent requests
 }
 
 // Use global to persist cache in development
@@ -20,6 +22,7 @@ if (!globalForCache.dashboardCache) {
   globalForCache.dashboardCache = {
     entries: new Map(),
     refreshing: new Set(),
+    pendingFetches: new Map(),
   }
 }
 
@@ -105,5 +108,55 @@ export const simpleCache = {
     cache.entries.delete(`${key}_${hours}`)
     cache.refreshing.delete(`${key}_${hours}`)
     console.log(`[Cache] DELETED ${key} (hours=${hours})`)
+  },
+
+  // Check if there's a pending fetch for this key
+  getPendingFetch<T>(key: string, hours: number): Promise<T> | null {
+    const cacheKey = `${key}_${hours}`
+    return (cache.pendingFetches.get(cacheKey) as Promise<T>) || null
+  },
+
+  // Set a pending fetch promise (other requests will wait on this)
+  setPendingFetch<T>(key: string, hours: number, promise: Promise<T>): void {
+    const cacheKey = `${key}_${hours}`
+    cache.pendingFetches.set(cacheKey, promise)
+    console.log(`[Cache] QUEUED fetch for ${key} (hours=${hours})`)
+  },
+
+  // Clear pending fetch when done
+  clearPendingFetch(key: string, hours: number): void {
+    const cacheKey = `${key}_${hours}`
+    cache.pendingFetches.delete(cacheKey)
+  },
+
+  // Execute a fetch with queuing - ensures only one fetch runs at a time
+  async fetchWithQueue<T>(
+    key: string,
+    hours: number,
+    fetchFn: () => Promise<T>
+  ): Promise<T> {
+    const cacheKey = `${key}_${hours}`
+
+    // Check if there's already a pending fetch - wait for it instead of starting new one
+    const pending = cache.pendingFetches.get(cacheKey) as Promise<T> | undefined
+    if (pending) {
+      console.log(`[Cache] WAITING for existing fetch: ${key} (hours=${hours})`)
+      return pending
+    }
+
+    // Start new fetch and store the promise
+    const fetchPromise = (async () => {
+      try {
+        const result = await fetchFn()
+        return result
+      } finally {
+        cache.pendingFetches.delete(cacheKey)
+      }
+    })()
+
+    cache.pendingFetches.set(cacheKey, fetchPromise)
+    console.log(`[Cache] STARTED fetch for ${key} (hours=${hours})`)
+
+    return fetchPromise
   },
 }
